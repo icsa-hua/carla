@@ -129,31 +129,12 @@ def main():
             sim_world.apply_settings(settings)
             traffic_manager.set_synchronous_mode(True) 
 
-            print(settings)
 
         #Get spawn points and generate waypoints to be used later for the routeplanner. 
         spawn_points = map.get_spawn_points()
-        waypoints = map.generate_waypoints(distance = 10.0)
-
-        print("Calculating Landmarks .. .")
-        landmarks = sim_world.get_map().get_all_landmarks_of_type('274') #'1000001' return the signal lights. 
-        for ind in landmarks:
-            print(f"Landmark is {ind.name}")
+        #waypoints = map.generate_waypoints(distance = 10.0)
+        #landmarks = sim_world.get_map().get_all_landmarks_of_type('274') #'1000001' return the signal lights. 
         
-        #empty_set = set() 
-        #for waypoint in waypoints: 
-        #    empty_set.add(waypoint.road_id)
-        
-        #for entry in empty_set:
-        #    print("Road Id - > " , entry)
-
-        for waypoint in waypoints:
-            if(waypoint.road_id == 0):
-                    sim_world.debug.draw_string(waypoint.transform.location, 'O', draw_shadow=False, 
-                                                color=carla.Color(r=0,g=255,b=0), life_time=20, persistent_lines=True)           
-            if waypoint.road_id == 467:
-                    sim_world.debug.draw_string(waypoint.transform.location, 'O', draw_shadow=False, 
-                                                color=carla.Color(r=0,g=255,b=255), life_time=20, persistent_lines=True)
         #Actual spawning of the vehicle 
         #spawn_point_wp = map.get_waypoint(location)
 
@@ -164,8 +145,8 @@ def main():
         if bp.has_attribute('color'):
             color = random.choice(bp.get_attribute('color').recommended_values)
             bp.set_attribute('color',color)
-
-        location = carla.Location(x=1.3, y = -148.9, z = 0)
+        bp.set_attribute('role_name','hero')
+        location = carla.Location(x=60.2, y = 123.4, z = 0)
         sp_wp = map.get_waypoint(location)
         start_wp = sp_wp.transform.location 
         sp = carla.Transform(carla.Location(x = start_wp.x, y = start_wp.y, z = start_wp.z),sp_wp.transform.rotation)
@@ -174,7 +155,7 @@ def main():
         actor_list.append(vehicle)
         print('Created %s' % vehicle.type_id)
 
-        destination_location = carla.Location(x=-107.2,y=55.1,z=0)
+        destination_location = carla.Location(x=-139.6,y=-134,z=0)
         dest_wp = map.get_waypoint(destination_location)
         wp = dest_wp.transform.location
         dest = carla.Transform(carla.Location(x=wp.x, y=wp.y, z = wp.z),dest_wp.transform.rotation)
@@ -210,7 +191,7 @@ def main():
         physics_control.wheels = wheels 
 
         vehicle.apply_physics_control(physics_control)
-        print(physics_control)
+        #print(physics_control)
 
         #To have a sort of self-driving car 
         #vehicle.set_autopilot(True)
@@ -220,6 +201,7 @@ def main():
                           'ignore_vehicles': False}
         agent = Agent(vehicle,30,opt_dict=oct_dictionary) #The Basic RP planner will handle the control of the vehicle. 
         agent.follow_speed_limits(True)
+        agent.ignore_stop_signs(False)
         agent.set_destination(dest.location,sp.location)
         route_planner_agent = agent.get_route_planner() #Get the RoutePlanner object
 
@@ -240,6 +222,14 @@ def main():
         #spectator_transform.rotation.yaw += 180
         #spectator = world.get_spectator()
         #spectator.set_transform(spectator_transform)
+
+
+        for tl in sim_world.get_actors().filter('traffic.traffic_light*'):
+            # Trigger/bounding boxes contain half extent and offset relative to the actor.
+            trigger_transform = tl.get_transform()
+            trigger_transform.location += tl.trigger_volume.location
+            trigger_extent = tl.trigger_volume.extent
+
 
         #how to get the data from sensor. 
         sensor.listen(lambda data: process_image(data))

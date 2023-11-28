@@ -60,6 +60,7 @@ class RoutePlanner(object):
             route = self._path_search(origin, destination) #Returns a list of nodes for the best possible path based on copy graph. 
             print(f"The path to follow {route}")
             if not route: 
+               print("Not another path available")
                break
             
             self.copy_graph.remove_edges_from(zip(route,route[1:]))
@@ -100,11 +101,14 @@ class RoutePlanner(object):
 
         best_route = best_paths[0]
         
-        EEM = energy_model(self._vehicle,best_paths,self._wmap,origin,destination)
-        self._energy_cost = EEM.energy_estimation()
-
+        EEM = energy_model(self._vehicle,best_paths,self._wmap,origin,destination,self._id_map)
+        self._energy_cost,total_distance,total_travel_time = EEM.energy_estimation()
+        print(f"Total Distance of the links {total_distance}")
+        print(f"The total time of the link is {total_travel_time}")
         #Energy_cost = self._energy_estimation_heuristic(origin,destination,best_paths)
-        print(f"The energy cost for {npaths} possible paths is {self._energy_cost} ")
+        for i in range(0,len(self._energy_cost)):
+            print(f"The energy cost for {i + 1} possible paths is {self._energy_cost[i]} ")
+            
         return best_route
     
 

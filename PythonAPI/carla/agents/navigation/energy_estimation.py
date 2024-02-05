@@ -1,6 +1,3 @@
-#energy.py
-
-import math
 import numpy as np
 import networkx as nx
 from statistics import mean
@@ -10,8 +7,10 @@ import matplotlib
 matplotlib.use('TkAgg')
 import  matplotlib.pyplot as plt
 import networkx as nx 
+import warnings
+import math
 
-import carla
+#Κλάση το ενεργειακό μοντέλο
 class energy_model():
     def __init__(self, vehicle, possible_routes, wmap,origin,destination,road_ids):
         
@@ -41,11 +40,15 @@ class energy_model():
         speed_60 = 60 * 0.27778 
         speed_90 = 90 * 0.27778
         speed_100 = 100 * 0.27778
+
+        #Η επιτάχυνση είναι παραγώμενη από τον χρόνο. 
+        #ToDo => Get the acceleration from the the car dynamics and the distance covered. 
         self.time_travel = {(0,speed_30): 2.40, (0,speed_60): 3.90, (0,speed_90): 6.08, (0,speed_100): 6.90, (speed_30,speed_60): 1.28, (speed_30,speed_90): 3.81,
-                       (speed_60,speed_90): 1.99, (speed_90,speed_60): 1.03, (speed_90,speed_30): 2.12, (speed_90,0): 2.84, (speed_60,speed_30): 1.28, (speed_60,0): 1.78, (speed_30,0): 1.08}
-        self.traffic_lights = [13.80, 13.84, 21.31,34.01,47.64,47.83,47.97]
+                            (speed_60,speed_90): 1.99, (speed_90,speed_60): 1.03, (speed_90,speed_30): 2.12, (speed_90,0): 2.84, (speed_60,speed_30): 1.28, (speed_60,0): 1.78, (speed_30,0): 1.08}
+        self.traffic_lights = [13.80, 13.84, 21.31,34.01,47.64,47.83,47.97] #Traffic Stops in seconds
         self._stop_times = {"traffic_light" : mean(self.traffic_lights), "stop" : 3.2}
 
+        #Από εδώ μπορούμε να πάρουμε όλα τα σημεία που μπορεί να σταματήσει το όχημα μαζί με το όριο ταχύτητας κάθε δρόμου. 
         speed_lms = self._wmap.get_all_landmarks_of_type('274')
         self._speed_lms = {lm.road_id: lm for lm in speed_lms}
         stop_lms = self._wmap.get_all_landmarks_of_type('206')
@@ -53,34 +56,33 @@ class energy_model():
         highway_lms = self._wmap.get_all_landmarks_of_type('330')
         self._highway_lms = {lm.road_id : lm for lm in highway_lms}
 
+        #Απλή αρχικοποίηση του waypoint_queue που θα έχει στην συνέχεια όλα τα σημεία από τα οποία θα περάσει το αυτοκίνητο. 
         self.target_waypoint, self.target_road_option = (self._wmap.get_waypoint(origin), RoadOption.LANEFOLLOW)
         self._waypoint_queue = deque(maxlen=10000) 
         self._waypoint_queue.append((self.target_waypoint, self.target_road_option))
         self._road_ids = road_ids
-        #print(road_ids)
         self._total_distance = [] 
         self._total_travel_time = []
         self._links = []
-        #print(f"Stops for the map -> {self._stop_lms}")
-        #print(f"Speed limits in the map -> {self._speed_lms}")
+        print(f"|Stops for the map ==> {self._stop_lms}|")
+        print(f"|Speed limits in the map ==> {self._speed_lms}|")
 
-
+    #Βοηθά όταν έχουμε πολλαπλά μονοπάτια. Αναδημιουργεί την ουρά με τα δεδομένα του μονοπατιού όπως αυτό δίνεται από τον PFA αλγόριθμο
     def _remake_queue(self,current_plan, clean_queue=True):
         if clean_queue:
+            #Delete for every new route
             self._waypoint_queue.clear()
-        
         new_plan_length = len(current_plan) + len(self._waypoint_queue)
-
         if new_plan_length > self._waypoint_queue.maxlen:
             new_waypoint_queue = deque(max_len=new_plan_length)
             for wp in self._waypoint_queue:
                 new_waypoint_queue.append(wp)
             self._waypoint_queue = new_waypoint_queue
-        
+        #Pass the route elements into the queue
         for elem in current_plan:
             self._waypoint_queue.append(elem)
 
-
+    #Υπολογισμός της επιτάχυνσης (μέσω του χρόνου, όπως αυτός υπολογίστηκε στο περιβάλλον)
     def _average_acceleration(self, v_initial=0, v_final=27.78, time_travel=5.7, dist_travel = 0):
         #v_initial = v_initial*0.27778
         #v_final = v_final*0.27778 #turn Km/h to m/s for this link
@@ -90,6 +92,7 @@ class energy_model():
             s = (1/2)*(v_final+v_initial) * time_travel 
         return (v_final-v_initial)/time_travel
 
+    #Υπολογισμός της ενέργειας που θα καταναλωθεί σε κάθε φάση ενός στάδιου. 
     def _phase_calculation(self, phase_acc, phase_speed, phase_dist,phase_time,phase_avg_end_speed,slope_angle):
         force_wheels = (self._A_coef*np.cos(slope_angle)) + (self._B_coef*phase_avg_end_speed) + (self._C_coef*(phase_avg_end_speed**2))\
                         +(self._mass*self._d_coef*phase_acc) + (self._mass*self._g_coef*np.sin(slope_angle))
@@ -108,8 +111,8 @@ class energy_model():
         energy = ((Pwh*phase_time)/(self._nd) + (self._P_aux*phase_time)/(self._n_aux))*(1/3600)
         return energy
 
+    #Εύκολος τρόπος για να πάρουμε τα ids για τους δρόμους των σημείων
     def waypoints_roads(self):
-        #waypoints = self._wmap.generate_waypoints(distance = 10)
         waypoints = self._wmap.get_topology()
         if waypoints:
             wp_road_ids = dict()
@@ -124,23 +127,27 @@ class energy_model():
         return wp_road_ids
         
 
-
+    #Όταν έχουμε πολλαπλά μονοπάτια που γυρίζουν από τους αλγόριθμους τότε θα πρέπει να τα περάσουμε όλα και να δείξουμε τις διαφορές τους. 
     def loop_route(self):
+        #Η συνάρτηση περιλαμβάνει και σχηματική αναπαράσταση των μονοπατιών σε δισδιάστατο διάγραμμα για κάθε μονοπάτι. 
         
         if not self._links:
             print("Error when converting the links. Exit program. ")
             return 
         
-        flag = False
+        #flag = False
         ind = True
 
-        for link in self._links: 
-            x1, y1 = link[0].transform.location.x, link[0].transform.location.y    
-            x2, y2 = link[-1].transform.location.x, link[-1].transform.location.y 
-            print(f"Distance of link {link} is {link[0].transform.location.distance(link[-1].transform.location)}")
-            plt.plot([-x1,-x2], [y1,y2], marker = 'o')
-        plt.show()
+        ###Show plot of links for route. 
+        # for link in self._links: 
+        #     x1, y1 = link[0].transform.location.x, link[0].transform.location.y    
+        #     x2, y2 = link[-1].transform.location.x, link[-1].transform.location.y 
+        #     print(f"Distance of link {link} is {link[0].transform.location.distance(link[-1].transform.location)}")
+        #     plt.plot([-x1,-x2], [y1,y2], marker = 'o')
+        # plt.show()
 
+        #Δημιούργησε ξεκάθαρες ακμές για τα σημεία, ώστε να είναι περισσότερο ξεκάθαρες οι φάσεις στον υπολογισμό και 
+        #ελάττωσε τα προβλήματα όταν οι αποστάσεις είναι πολύ μικρές. 
         flinks = []
         fnal = self._links[-1][-1]
         for link in range(len(self._links)-2):
@@ -149,17 +156,16 @@ class energy_model():
                 continue
             link2 = self._links[link+1]
             link3 = self._links[link+2]
-            p1 = link1[0].transform.location
-            p2 = link1[-1].transform.location
+            p1 = link1[0].transform.location #Αρχικός κόμβος της ακμής
+            p2 = link1[-1].transform.location #Τελικός κόμβος της ακμής 
             p3 = link2[0].transform.location
             p4 = link2[-1].transform.location
-            d1 = p1.distance(p2)
-            d2 = p3.distance(p4)
+            d1 = p1.distance(p2) #Απόσταση για την πρώτη ακμή
+            d2 = p3.distance(p4) #Απόσταση για την δεύτερη ακμή
             
-            if d1 < self._min_dist:
 
+            if d1 < self._min_dist: 
                 if ind: 
-                    print("Recursion Initialized")
                     flag = True 
                     ind = False
                 
@@ -179,19 +185,19 @@ class energy_model():
                     self._links[link+1] = (None,link2[-1])                    
             else:
                 if d2 < self._min_dist:
-                    print(f"Reached here to second link less than ten")
                     if ind: 
-                        print("Recursion Initialized")
                         flag = True 
                         ind = False
                     flinks.append((link1[0],link2[-1]))
                     self._links[link] = (link1[0],None)
                     self._links[link+1] = (None,link2[-1])
                 else:
-                    flinks.append(link)
+                    flinks.append((link1[0],link2[0]))
             link+=1
         if fnal != flinks[-1][-1]: 
                 flinks.append((flinks[-1][-1],self._links[-1][-1]))
+
+        #Τρόπος για να μετατρέψουμε τα δεδομένα σε γράφο
         #G = nx.DiGraph()
         #for link in flinks: G.add_edge(link[0],link[-1])
         #links = list(nx.topological_sort(G))
@@ -199,20 +205,22 @@ class energy_model():
         #flinks = [(links[link],links[link+1]) for link in range(len(links)-1)]
         #del G
         #links.clear()
-
-        for link in flinks: 
-            x1, y1 = link[0].transform.location.x, link[0].transform.location.y    
-            x2, y2 = link[-1].transform.location.x, link[-1].transform.location.y 
-            plt.plot([-x1,-x2], [y1,y2], marker = 'o')
-        plt.show()
+        
+        #Διάγραμμα με τις αλλαγές που προκύπτουν από την παραπάνω διαδικασία
+        # for link in range(len(flinks)): 
+        #     x1, y1 = flinks[link][0].transform.location.x, flinks[link][0].transform.location.y    
+        #     x2, y2 = flinks[link][1].transform.location.x, flinks[link][1].transform.location.y 
+        #     plt.plot([-x1,-x2], [y1,y2], marker = 'o')
+        # plt.show()
             
         self._links = [(x,y) for x,y in self._links if y is not None and x is not None]
 
-        #self._links.clear()
         self._links = flinks + self._links
-        #if flag: self.loop_route()
+        #if flag: self.loop_route() #Επιλογή αναδρομής (Νοt fully functional)
+
         return flinks
     
+    #Έλεγχος αν τα σημεία της ακμής είναι πολύ κοντά
     def condition(self, link):
         p1 = link[0].transform.location
         p2 = link[-1].transform.location
@@ -220,6 +228,7 @@ class energy_model():
             return False
         return True
 
+    #Δημιουργία ακμής
     def link_creation(self):
 
         waypoints = self._waypoint_queue
@@ -239,17 +248,28 @@ class energy_model():
             self._links.append((wp_road_ids[key][0],wp_road_ids[key][-1]))
         
         links = []
-        #Prepei prwta na enosv ola ta shmeia
+        #Find and create a path with all the points
         for link in range(len(self._links)-1):
-            if not (self._links[link][0] == self._links[link][-1]):
+            if (link==0):
+                links.append((self._links[0][0],self._links[0][-1]))
+            elif(link==len(self._links)-1):
+                links.append(self._links[link][0].self._links[link][-1])
+                continue
+            elif not (self._links[link][0] == self._links[link][-1]):
                 links.append(self._links[link])
-
+            
             p2 = self._links[link][-1] #the final point of the tuple 
             p3 = self._links[link+1][0] # the first point of the next link 
             links.append((p2,p3))
 
-        #print the elements in the route in a diagram for clarity. 
+        # for link in links: 
+        #     x1, y1 = link[0].transform.location.x, link[0].transform.location.y    
+        #     x2, y2 = link[1].transform.location.x, link[1].transform.location.y 
+        #     print(f"Distance of link {link} is {link[0].transform.location.distance(link[-1].transform.location)}")
+        #     plt.plot([-x1,-x2], [y1,y2], marker = 'o')
+        # plt.show()
 
+        #print the elements in the route in a diagram for clarity. 
         filtered_links = [link for link in links if self.condition(link)]
         links.clear()
         self._links.clear()         
@@ -259,7 +279,7 @@ class energy_model():
         return self.loop_route()
         
         
-
+    #Υπολογισμός ενέργειας
     def energy_estimation(self):
 
         phases = {"accelerate":0, "steadyspeed":1, "decelerate":2, "stopstill":3}
@@ -272,26 +292,34 @@ class energy_model():
         phase_energy = []
         total_distance = 0
         total_travel_time = 0
-        wp_road_ids = self.waypoints_roads()
+        #wp_road_ids = self.waypoints_roads()
 
         while len(self._possible_routes) != 0:
+
             route = self._possible_routes[0]
+
+            #Διαγραμματική αποτύπωση της διαδρομής. 
+            for link in range(len(route)-1): 
+                x1, y1 = route[link][0].transform.location.x, route[link][0].transform.location.y    
+                x2, y2 = route[link+1][0].transform.location.x, route[link+1][0].transform.location.y 
+                print(f"Distance of link {link} is {route[link][0].transform.location.distance(route[link+1][0].transform.location)}")
+                plt.plot([-x1,-x2], [y1,y2], marker = 'o')
+            plt.show()
+
             self._remake_queue(route)
             self._min_acc = self._average_acceleration(0,30*0.27778,self.time_travel[(0,30*0.27778)],dist_travel=0)
-            self._min_dist = (1/2)*(30*0.27778) * self.time_travel[(0,30*0.27778)] #distance travveled to reach 100km/h
+            self._min_dist = (1/2)*(30*0.27778) * self.time_travel[(0,30*0.27778)] #distance travelled to reach 30km/h
             links = self.link_creation()
 
-            print(links)
+            #Τελική αποτύπωση της διαδρομής μετά τον υπολογισμό και την μείωση των ακμών. 
             for link in range(len(links)): 
                 cur_link = links[link]
                 x1, y1 = cur_link[0].transform.location.x, cur_link[0].transform.location.y    
                 x2, y2 = cur_link[-1].transform.location.x, cur_link[-1].transform.location.y 
                 print(cur_link[0].transform.location.distance(cur_link[-1].transform.location))
                 plt.plot([-x1,-x2], [y1,y2], marker = 'o')
-            
             plt.show()
         
-
             not_stop_wp = True
             traffic_stop = False 
             stop_flag = False 
@@ -307,11 +335,11 @@ class energy_model():
                     break
 
                 waypoint = links[wps][0]
-                next_waypoint = links[wps][-1] #This is the same for both links
+                next_waypoint = links[wps][-1]
                 
                 next_link_wp = links[wps+1][-1]
                 if not waypoint or not next_waypoint:
-                    print(F"AT ITERATION {wps} no waypoint was found")
+                    warnings.warn(F"At current iteration {wps} no waypoint was found. \nCheck the Start and Finish point locations. ")
                     break
 
                 if next_waypoint.road_id!=waypoint.road_id:
@@ -333,7 +361,7 @@ class energy_model():
                 link_dist = current_loc.distance(next_location)
                 total_distance += link_dist
 
-
+                #Παίρνουμε την μέγιστη ταχύτητα της ακμής που αλλάζει και την τρέχουσα ταχύτητα. 
                 if next_waypoint.road_id == waypoint.road_id:
                     v_max_current = self._speed_lms.get(waypoint.road_id)
                     if next_waypoint.road_id == next_waypoint.road_id:
@@ -360,6 +388,7 @@ class energy_model():
                 v_max_current = v_max_current*0.27778
                 v_max_next = v_max_next*0.27778
 
+                #Ελέγχουμε για στάσεις κατά την διαδρομή ανάλογα με τους δρόμους που έχουν επιλεγεί για να ακολουθήσει το όχημα. 
                 if self._vehicle.get_traffic_light():
                     if next_waypoint.get_junction():
                         if self._vehicle.is_at_traffic_light() and not not_stop_wp: # and not not_stop_wp:
@@ -385,7 +414,6 @@ class energy_model():
                 init_velocity = v_end_prev
                 v_end_prev = v_end_current
                 
-                #print(f" Vmac_cur = {v_max_current} | Next V_max = {v_max_next} | End speed of link = {v_end_current} | end speed of previous link = {v_end_prev}")
                 print(f" Initial_speed {init_velocity} and Max speed of link {v_max_current}")
 
                 for phase_key, _ in phases.items():
@@ -398,7 +426,6 @@ class energy_model():
                             phase_avg_end_speed[0] = 0
                             phase_energy.append(0)
                         else: 
-                            
                             temp = self.time_travel.get((init_velocity,v_max_current))
                             phase_acc[0] = self._average_acceleration(init_velocity,v_max_current,temp,dist_travel=0)
                             phase_dist[0] = (v_max_current**2 - init_velocity**2)/(2*phase_acc[0])
@@ -429,7 +456,6 @@ class energy_model():
                             phase_dist[2] = 0  
 
                         if (phase_dist[0] + phase_dist[2]) > link_dist:
-                            print(f"The sum distance of phases 1 and 3 {phase_dist[0] + phase_dist[2]} is bigger thatn the link's distance{link_dist}. ")
                             phase_energy.append(0)
                         else: 
                             phase_acc[1] = 0
@@ -446,6 +472,7 @@ class energy_model():
                             phase_energy.append(energy)
                     elif phase_key == "decelerate":
                         if stop_flag or traffic_stop:
+                            print("Decreasing speed as stop node was found...")
                             phase_time[2] = (v_max_current-v_end_current)/(2*phase_acc[2])
                             phase_speed[2] = v_end_current
                             phase_avg_end_speed[2] = (0.25*v_end_current) +  (0.75*v_max_current)

@@ -3,10 +3,8 @@ import os
 import sys 
 import random
 import time
-import numpy as np 
-import cv2 
 import argparse
-
+import cv2
 
 
 #Try and import numpy and what other package we are unsure will load correctly
@@ -30,7 +28,6 @@ try:
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/carla')
 except IndexError:
     pass
-
 
 import carla
 from agents.navigation.Basic_RP_agent import Agent
@@ -132,7 +129,9 @@ def main():
 
         #Get spawn points and generate waypoints to be used later for the routeplanner. 
         spawn_points = map.get_spawn_points()
-        #waypoints = map.generate_waypoints(distance = 10.0)
+        road_waypoints = map.generate_waypoints(distance = 10.0)
+        st_point = carla.Location(spawn_points[50].location)
+        fin_point = carla.Location(spawn_points[100].location)
         #landmarks = sim_world.get_map().get_all_landmarks_of_type('274') #'1000001' return the signal lights. 
         
         #Actual spawning of the vehicle 
@@ -146,16 +145,18 @@ def main():
             color = random.choice(bp.get_attribute('color').recommended_values)
             bp.set_attribute('color',color)
         bp.set_attribute('role_name','hero')
-        location = carla.Location(x=60.2, y = 123.4, z = 0)
+
+        location = carla.Location(x=60.2, y = 123.4, z=0)
         sp_wp = map.get_waypoint(location)
         start_wp = sp_wp.transform.location 
         sp = carla.Transform(carla.Location(x = start_wp.x, y = start_wp.y, z = start_wp.z),sp_wp.transform.rotation)
         sp.location.z += 2 
+
         vehicle = sim_world.spawn_actor(bp,sp)
         actor_list.append(vehicle)
         print('Created %s' % vehicle.type_id)
 
-        destination_location = carla.Location(x=-139.6,y=-134,z=0)
+        destination_location = carla.Location(x=-23.6,y=40,z=0)
         dest_wp = map.get_waypoint(destination_location)
         wp = dest_wp.transform.location
         dest = carla.Transform(carla.Location(x=wp.x, y=wp.y, z = wp.z),dest_wp.transform.rotation)
@@ -202,27 +203,26 @@ def main():
         agent = Agent(vehicle,30,opt_dict=oct_dictionary) #The Basic RP planner will handle the control of the vehicle. 
         agent.follow_speed_limits(True)
         agent.ignore_stop_signs(False)
-        agent.set_destination(dest.location,sp.location)
+        #agent.set_destination(fin_point.location,st_point.location)
+        agent.set_destination(fin_point,st_point)
         route_planner_agent = agent.get_route_planner() #Get the RoutePlanner object
 
         #Attach a sensor to a car 
         cam_bp = blueprint_library.find("sensor.camera.rgb")
-        cam_bp.set_attribute("image_size_x", f"{IM_WIDTH}" )
-        cam_bp.set_attribute("image_size_y", f"{IM_HEIGHT}" )
+        cam_bp.set_attribute("image_size_x", f"{IM_WIDTH}")
+        cam_bp.set_attribute("image_size_y", f"{IM_HEIGHT}")
         cam_bp.set_attribute("fov", "110")
+        cam_transform = carla.Transform((carla.Location(x=-4,z=2.5)))#)
+        camera = sim_world.spawn_actor(cam_bp, cam_transform, attach_to=vehicle)
+        spectator = sim_world.get_spectator()
+        spectator.set_transform(camera.get_transform())
+        actor_list.append(camera)
 
         #For different sensors different attributes. 
         spawn_cam_point = carla.Transform(carla.Location(x=2.5, z=0.7))#Relative position depending on the vehicle.
         sensor = sim_world.spawn_actor(cam_bp,spawn_cam_point,attach_to=vehicle)
         actor_list.append(sensor)
         print('Created %s' % sensor.type_id)
-
-        #spectator_transform = carla.Transform(vehicle_transform.location, vehicle_transform.rotation)
-        #spectator_transform.location += vehicle_transform.get_forward_vector() * 20
-        #spectator_transform.rotation.yaw += 180
-        #spectator = world.get_spectator()
-        #spectator.set_transform(spectator_transform)
-
 
         for tl in sim_world.get_actors().filter('traffic.traffic_light*'):
             # Trigger/bounding boxes contain half extent and offset relative to the actor.
@@ -250,7 +250,9 @@ def main():
         #vehicle.apply_control(agent.run_step()) #
         time = 0 
         while True:
-            time = time + 1 
+            time = time + 1         
+            spectator.set_transform(camera.get_transform())
+
             #vehicle.apply_control(agent.run_step())
             if agent.done(): 
                 #If we do not wish to finish the simulation when the destination is reached 
@@ -267,10 +269,6 @@ def main():
         print(f"Simulation Ended after {time} steps")
 
     finally: 
-        #for actor in actor_list:
-        #    actor.destroy()
-        #or
-        
         #settings = sim_world.get_settings()
         #settings.synchronous_mode = False 
         #settings.fixed_delta_seconds = None 

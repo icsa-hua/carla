@@ -9,7 +9,9 @@ import  matplotlib.pyplot as plt
 import networkx as nx 
 import warnings
 import math
-
+import carla 
+import time 
+import random
 #Κλάση το ενεργειακό μοντέλο
 class energy_model():
     def __init__(self, vehicle, possible_routes, wmap,origin,destination,road_ids):
@@ -32,6 +34,7 @@ class energy_model():
         self._mass = 2565
         self._wmap = wmap 
         self._vehicle = vehicle
+        self._world = self._vehicle.get_world()
         self._possible_routes = possible_routes
         self._origin = origin
         self._min_acc = 0
@@ -55,6 +58,17 @@ class energy_model():
         self._stop_lms =  {lm.road_id: lm for lm in stop_lms}
         highway_lms = self._wmap.get_all_landmarks_of_type('330')
         self._highway_lms = {lm.road_id : lm for lm in highway_lms}
+        self._traffic_lights = {}
+        list_actors = self._world.get_actors()
+        
+        for actor_ in list_actors:
+            if isinstance(actor_, carla.TrafficLight):
+                tlwp = self._wmap.get_waypoint(actor_.get_transform().location)
+                road_id_tl = tlwp.road_id
+                self._traffic_lights[road_id_tl] = tlwp
+
+                print(f'Traffic light location {tlwp.road_id}')
+
 
         #Απλή αρχικοποίηση του waypoint_queue που θα έχει στην συνέχεια όλα τα σημεία από τα οποία θα περάσει το αυτοκίνητο. 
         self.target_waypoint, self.target_road_option = (self._wmap.get_waypoint(origin), RoadOption.LANEFOLLOW)
@@ -138,18 +152,11 @@ class energy_model():
         #flag = False
         ind = True
 
-        ###Show plot of links for route. 
-        # for link in self._links: 
-        #     x1, y1 = link[0].transform.location.x, link[0].transform.location.y    
-        #     x2, y2 = link[-1].transform.location.x, link[-1].transform.location.y 
-        #     print(f"Distance of link {link} is {link[0].transform.location.distance(link[-1].transform.location)}")
-        #     plt.plot([-x1,-x2], [y1,y2], marker = 'o')
-        # plt.show()
-
         #Δημιούργησε ξεκάθαρες ακμές για τα σημεία, ώστε να είναι περισσότερο ξεκάθαρες οι φάσεις στον υπολογισμό και 
         #ελάττωσε τα προβλήματα όταν οι αποστάσεις είναι πολύ μικρές. 
         flinks = []
         fnal = self._links[-1][-1]
+        print(len(self._links))
         for link in range(len(self._links)-2):
             link1 = self._links[link]
             if not link1[0] or not link1[-1]:
@@ -163,7 +170,6 @@ class energy_model():
             d1 = p1.distance(p2) #Απόσταση για την πρώτη ακμή
             d2 = p3.distance(p4) #Απόσταση για την δεύτερη ακμή
             
-
             if d1 < self._min_dist: 
                 if ind: 
                     flag = True 
@@ -206,12 +212,13 @@ class energy_model():
         #del G
         #links.clear()
         
-        #Διάγραμμα με τις αλλαγές που προκύπτουν από την παραπάνω διαδικασία
-        # for link in range(len(flinks)): 
-        #     x1, y1 = flinks[link][0].transform.location.x, flinks[link][0].transform.location.y    
-        #     x2, y2 = flinks[link][1].transform.location.x, flinks[link][1].transform.location.y 
-        #     plt.plot([-x1,-x2], [y1,y2], marker = 'o')
-        # plt.show()
+        # Διάγραμμα με τις αλλαγές που προκύπτουν από την παραπάνω διαδικασία
+        for link in range(len(flinks)): 
+            x1, y1 = flinks[link][0].transform.location.x, flinks[link][0].transform.location.y    
+            x2, y2 = flinks[link][1].transform.location.x, flinks[link][1].transform.location.y 
+            plt.plot([-x1,-x2], [y1,y2], marker = 'o')
+        plt.title("This is inside the loop function")
+        plt.show()
             
         self._links = [(x,y) for x,y in self._links if y is not None and x is not None]
 
@@ -244,30 +251,81 @@ class energy_model():
 
         #Get the first and last elements in every road_id.
         #Some road_ids only have one element
-        for key in wp_road_ids.keys(): 
-            self._links.append((wp_road_ids[key][0],wp_road_ids[key][-1]))
+            
+        #also try the douglas peucker way 
+        formatted_wp_roads = {}
+        for key in wp_road_ids.keys():
+
+            length = len(wp_road_ids[key])
+            if length == 1: 
+                points = [wp_road_ids[key][0]]
+            else:
+
+                include_points = random.sample(range(1, length-1), int(np.ceil(length/2)))
+                include_points.append(0)
+                include_points.append(length-1)
+                include_points = sorted(include_points)
+                points = [wp_road_ids[key][ii] for ii in include_points]
+
+            formatted_wp_roads[key] = self._douglas_pucker(points, epsilon_curved=0.25, epsilon_straight=3)
+
+
+        for key in formatted_wp_roads.keys():
+            for ii in range(len(formatted_wp_roads[key])-1):
+
+                wayp1 = formatted_wp_roads[key][ii]
+                # wayp1 = carla.Location(x=wayp1[0], y=wayp1[1], z=wayp1[2])
+                wayp2 = formatted_wp_roads[key][ii+1]
+                # wayp2 = carla.Location(x=wayp2[0], y=wayp2[1], z=wayp2[2])
+                # wayp1 = self._wmap.get_waypoint(wayp1)
+                # wayp2 = self._wmap.get_waypoint(wayp2)
+                self._links.append((wayp1,wayp2))
+            # wayp1 = formatted_wp_roads[key][0]
+            # wayp1 = carla.Location(x=wayp1[0], y=wayp1[1], z=wayp1[2])
+            # wayp2 = formatted_wp_roads[key][-1]
+            # wayp2 = carla.Location(x=wayp2[0], y=wayp2[1], z=wayp2[2])
+            # wayp1 = self._wmap.get_waypoint(wayp1)
+            # wayp2 = self._wmap.get_waypoint(wayp2)
+            # self._links.append((wayp1,wayp2)) 
+
+
+        #Create the list of waypoints only.
+        # for key in wp_road_ids.keys(): 
+        #     middle_pack = int(len(wp_road_ids[key])/2)
+        #     self._links.append((wp_road_ids[key][0], wp_road_ids[key][middle_pack], wp_road_ids[key][-1]))
         
+        for link in self._links: 
+            x1, y1 = link[0].transform.location.x, link[0].transform.location.y    
+            x2, y2 = link[1].transform.location.x, link[1].transform.location.y 
+            # x3, y3 = link[2].transform.location.x, link[2].transform.location.y 
+            plt.plot([-x1,-x2], [y1,y2], marker = 'o')
+        plt.title("This is the one straingth after the appendind")
+        plt.show()
+
+
         links = []
         #Find and create a path with all the points
         for link in range(len(self._links)-1):
             if (link==0):
                 links.append((self._links[0][0],self._links[0][-1]))
             elif(link==len(self._links)-1):
-                links.append(self._links[link][0].self._links[link][-1])
+                links.append((self._links[link][0],self._links[link][-1]))
                 continue
-            elif not (self._links[link][0] == self._links[link][-1]):
-                links.append(self._links[link])
             
+            elif not (self._links[link][0] == self._links[link][-1]):
+                links.append((self._links[link][0],self._links[link][1]))
+                links.append((self._links[link][1],self._links[link][-1]))
+
             p2 = self._links[link][-1] #the final point of the tuple 
             p3 = self._links[link+1][0] # the first point of the next link 
             links.append((p2,p3))
 
-        # for link in links: 
-        #     x1, y1 = link[0].transform.location.x, link[0].transform.location.y    
-        #     x2, y2 = link[1].transform.location.x, link[1].transform.location.y 
-        #     print(f"Distance of link {link} is {link[0].transform.location.distance(link[-1].transform.location)}")
-        #     plt.plot([-x1,-x2], [y1,y2], marker = 'o')
-        # plt.show()
+        for link in links: 
+            x1, y1 = link[0].transform.location.x, link[0].transform.location.y    
+            x2, y2 = link[1].transform.location.x, link[1].transform.location.y 
+            plt.plot([-x1,-x2], [y1,y2], marker = 'o')
+        plt.title("This is the one straingth after Seperattions of links")
+        plt.show()
 
         #print the elements in the route in a diagram for clarity. 
         filtered_links = [link for link in links if self.condition(link)]
@@ -278,7 +336,121 @@ class energy_model():
         #return self._links
         return self.loop_route()
         
+    def calculate_incline_angle(self, cur_location, next_location):
+        dot_product = np.dot(cur_location, next_location)
+        magnitude1 = np.linalg.norm(cur_location)
+        magnitude2 = np.linalg.norm(next_location)       
+        cosine_angle = dot_product / (magnitude1 * magnitude2)
+        incline_angle_rad = np.arccos(cosine_angle)
+        incline_angle_degree = np.degrees(incline_angle_rad)
+        return incline_angle_degree
+
+
+    def point_line_distance_3d(self, point, line_start, line_end):
+        AP = np.array(point) - np.array(line_start)
+        AB = np.array(line_end) - np.array(line_start)
+        cross_product = np.cross(AP,AB) 
+        distance = np.linalg.norm(cross_product)/np.linalg.norm(AB)
+        return distance 
+    
+
+    def calculate_curvature(self, waypoints):
+        p1 = waypoints[0].transform.location
+        x1,y1,z1 =  p1.x, p1.y, p1.z 
+        p2 = waypoints[1].transform.location
+        x2,y2,z2 =  p2.x, p2.y, p2.z
+        p3 = waypoints[-1].transform.location
+        x3,y3,z3 =  p3.x, p3.y, p3.z
         
+        v1 = np.array([x2-x1, y2-y1, z2-z1])
+        v2 = np.array([x3-x2, y3-y2, z3-z2])
+
+        dot = np.dot(v1, v2)
+        norm_v1 = np.linalg.norm(v1) 
+        norm_v2 = np.linalg.norm(v2)
+
+        if norm_v1 == 0 or norm_v2 == 0:
+            return 0
+        
+        cos_theta = dot / (norm_v1 * norm_v2)
+        cos_theta = np.clip(cos_theta,-1,1)
+        angle = np.arccos(cos_theta)
+
+        return angle    
+
+
+    def key_points_of_curvature(self, points, curvature_thr):
+        
+        segment_classification = ['straight'] * (len(points)-1)
+        key_points = [points[0]]
+        for i in range(1, len(points)-1): 
+            curvature = self.calculate_curvature(points[i-1:i+2])
+            if curvature > curvature_thr:
+                segment_classification[i-1] = 'curved'
+                segment_classification[i] = 'curved'
+                key_points.append(points[i])
+        key_points.append(points[-1])
+        return key_points 
+
+    def _douglas_pucker(self,points, epsilon_curved, epsilon_straight): 
+
+        segment_classification = self.key_points_of_curvature(points ,np.pi/30)
+       
+        def simplify_segment(points, epsilon):
+            start_point = points[0].transform.location.x, points[0].transform.location.y, points[0].transform.location.z
+            end_point = points[-1].transform.location.x, points[-1].transform.location.y, points[-1].transform.location.z
+        
+            dmax = 0.0 
+            index = 0
+            for ii in range(1,len(points)-1):
+                current_point = points[ii].transform.location.x, points[ii].transform.location.y,points[ii].transform.location.z,
+                d = self.point_line_distance_3d(current_point,start_point,end_point)
+                if d > dmax: 
+                    index = ii
+                    dmax = d 
+            if dmax > epsilon: 
+                rec_result1 = self._douglas_pucker(points[:index+1], epsilon)
+                rec_result2 = self._douglas_pucker(points[index:], epsilon)
+                return rec_result1[:-1] + rec_result2
+            else:     
+                return [points[0], points[-1]]
+
+        results = [] 
+        start_index = 0 
+        for i in range(1, len(segment_classification)):
+            if segment_classification[i] != segment_classification[start_index] or i == len(segment_classification)-1:
+                segment_points = points[start_index:i+1]
+                epsilon = epsilon_curved if segment_classification[start_index] == 'curved' else epsilon_straight
+                simplified_segment = simplify_segment(segment_points, epsilon)
+                results += simplified_segment[:-1]
+                start_index = i 
+        results.append(points[-1])
+        return results 
+                
+
+        # key_points = self.key_points_of_curvature(points ,np.pi/18)
+        
+        # for ii in range(1, len(points)-1):
+        #     if points[ii] in key_points:
+        #         continue
+        #     current_point = points[ii].transform.location.x, points[ii].transform.location.y,points[ii].transform.location.z,
+            
+        #     d = self.point_line_distance_3d(current_point,start_point,end_point)
+        #     if d > dmax: 
+        #         index = ii
+        #         dmax = d 
+        #     print(f'Distance {d}')
+        # if dmax > epsilon: 
+        #     rec_result1 = self._douglas_pucker(points[:index+1], epsilon)
+        #     rec_result2 = self._douglas_pucker(points[index:], epsilon)
+
+        #     results = rec_result1[:-1] + rec_result2
+        # else:
+        #     results = [start_point] + [[p.transform.location.x,p.transform.location.y,p.transform.location.z] for p in key_points if p in points[1:-1]] + [end_point]        
+        # return results 
+
+
+
     #Υπολογισμός ενέργειας
     def energy_estimation(self):
 
@@ -293,18 +465,24 @@ class energy_model():
         total_distance = 0
         total_travel_time = 0
         #wp_road_ids = self.waypoints_roads()
+        if not self._speed_lms: 
+            print("No speed limit sign found. Due to urban environment the speed limit is set to 30 km/h")
+            speed_flag = True
+        else: 
+            speed_flag = False
 
         while len(self._possible_routes) != 0:
 
             route = self._possible_routes[0]
 
             #Διαγραμματική αποτύπωση της διαδρομής. 
-            for link in range(len(route)-1): 
-                x1, y1 = route[link][0].transform.location.x, route[link][0].transform.location.y    
-                x2, y2 = route[link+1][0].transform.location.x, route[link+1][0].transform.location.y 
-                print(f"Distance of link {link} is {route[link][0].transform.location.distance(route[link+1][0].transform.location)}")
-                plt.plot([-x1,-x2], [y1,y2], marker = 'o')
-            plt.show()
+            # for link in range(len(route)-1): 
+            #     x1, y1 = route[link][0].transform.location.x, route[link][0].transform.location.y    
+            #     x2, y2 = route[link+1][0].transform.location.x, route[link+1][0].transform.location.y 
+            #     # print(f"Distance of link {link} is {route[link][0].transform.location.distance(route[link+1][0].transform.location)}")
+            #     plt.plot([-x1,-x2], [y1,y2], marker = 'o')
+            # plt.title("Original Path as generated by the PFA")
+            # plt.show()
 
             self._remake_queue(route)
             self._min_acc = self._average_acceleration(0,30*0.27778,self.time_travel[(0,30*0.27778)],dist_travel=0)
@@ -318,6 +496,7 @@ class energy_model():
                 x2, y2 = cur_link[-1].transform.location.x, cur_link[-1].transform.location.y 
                 print(cur_link[0].transform.location.distance(cur_link[-1].transform.location))
                 plt.plot([-x1,-x2], [y1,y2], marker = 'o')
+            plt.title("Final Processed Path")
             plt.show()
         
             not_stop_wp = True
@@ -336,86 +515,110 @@ class energy_model():
 
                 waypoint = links[wps][0]
                 next_waypoint = links[wps][-1]
-                
                 next_link_wp = links[wps+1][-1]
+
+                if speed_flag:
+                    self._speed_lms[waypoint.road_id] = 30*0.27778
+                    self._speed_lms[next_waypoint.road_id] = 30*0.27778
+                    self._speed_lms[next_link_wp.road_id] = 30*0.27778
+
+
                 if not waypoint or not next_waypoint:
                     warnings.warn(F"At current iteration {wps} no waypoint was found. \nCheck the Start and Finish point locations. ")
                     break
 
                 if next_waypoint.road_id!=waypoint.road_id:
-                    not_stop_wp = False
+                    # not_stop_wp = False
                     if self._highway_lms.get(next_waypoint.road_id):
                         highway = True
             
-
                 current_loc = waypoint.transform.location
+                #print(current_loc)
                 next_location = next_waypoint.transform.location
+                print("Type of the vehicle object is " , type(self._vehicle))
 
-                self._vehicle.set_location(current_loc)
+                # self._vehicle.set_transform(waypoint.transform)
+                print(self._vehicle.get_velocity())
+                # if (next_waypoint==waypoint) or (current_loc.x == next_location.x and current_loc.y == next_location.y):
+                #     continue
 
-                if (next_waypoint==waypoint) or (current_loc.x == next_location.x and current_loc.y == next_location.y):
-                    continue
+                # incline = math.atan2((next_location.y-current_loc.y),(next_location.x-current_loc.x))
+                # slope_angle = math.degrees(incline)
+                # print(f' Slope angle {slope_angle}')
 
-                incline = math.atan2((next_location.y-current_loc.y),(next_location.x-current_loc.x))
-                slope_angle = math.degrees(incline)
-                link_dist = current_loc.distance(next_location)
+                cur_loc = [current_loc.x, current_loc.y, current_loc.z]
+                next_loc = [next_location.x, next_location.y, next_location.z]
+                slope_angle = self.calculate_incline_angle(cur_loc, next_loc)
+                # print(f'Incline angle {self.calculate_incline_angle(cur_loc, next_loc)}')
+
+                link_dist = current_loc.distance(next_location) #The same reuslt as the below equation. 
+                # (np.sqrt((next_location.y-current_loc.y)**2 + (next_location.x-current_loc.x)**2 + (next_location.z-current_loc.z)**2))
+
                 total_distance += link_dist
 
                 #Παίρνουμε την μέγιστη ταχύτητα της ακμής που αλλάζει και την τρέχουσα ταχύτητα. 
-                if next_waypoint.road_id == waypoint.road_id:
-                    v_max_current = self._speed_lms.get(waypoint.road_id)
-                    if next_waypoint.road_id == next_waypoint.road_id:
-                        v_max_next = v_max_current
+                if next_waypoint.road_id == waypoint.road_id: #Αν το επόμενο σημείο ανήκει στον ίδιο δρόμο τότε 
+                    v_max_current = self._speed_lms.get(waypoint.road_id) #Η μέγιστη ταχύτητα είναι το όριο ταχύτητα του παρόν δρόμου. 
+                    print(f'V_max_current 1 {v_max_current}')
+                    if next_waypoint.road_id == next_link_wp.road_id: #Αν το μέθεπόμενο σημείο ανήκει και αυτό στον ίδιο δρόμο με το επόμενο
+                        v_max_next = v_max_current #Η μέγιστη ταχύτητα του επόμενου δρόμου θα είναι ίση με την μέγιστη του παρόν δρόμου. 
                     else:
-                        v_max_next = self._speed_lms.get(next_link_wp.road_id)
-                else: 
-                    v_max_current = self._speed_lms.get(next_waypoint.road_id)
-                    if next_waypoint.road_id == next_link_wp.road_id:
-                        v_max_next = v_max_current
+                        v_max_next = self._speed_lms.get(next_link_wp.road_id) #Αλλιώς πάρε την μέγιστη ταχύτητα του επόμενου δρόμου με βάση τις τιμές των speed limits. 
+                else: #Αν η το επόμενο σημείο ανήκει σε άλλον δρόμο, ελέγχουμε το όριο τοαχύτητας εκείνου του δρόμου. 
+                    v_max_current = self._speed_lms.get(next_waypoint.road_id) 
+                    if next_waypoint.road_id == next_link_wp.road_id: #Αν το μέθεπόμενο σημείο ανήκει στον ίδιο δρόμο με το επόμενο
+                        v_max_next = v_max_current #Η μέγιστη ταχύτητα του επόμενου θα είναι η ίση με την παρούσα. 
                     else: 
-                        v_max_next = self._speed_lms.get(next_link_wp.road_id)
+                        v_max_next = self._speed_lms.get(next_link_wp.road_id) #Παίρνουμε την μέγιστη ταχύτητα με βάση τον μέθεπόμενο δρόμο. 
                 
-                if not v_max_current:
-                    v_max_current = 30 
-                else: 
-                    v_max_current = v_max_current.value
+                
+                if not v_max_current: #Αν δεν υπάρχει μέγιστη ταχύτητα (κάτι πήγε λάθος)
+                    v_max_current = 30 *0.27778
+                # else: 
+                #     v_max_current = v_max_current.value
 
                 if not v_max_next:
-                    v_max_next = 30 
-                else: 
-                    v_max_next = v_max_next.value
-
-                v_max_current = v_max_current*0.27778
-                v_max_next = v_max_next*0.27778
+                    v_max_next = 30*0.27778
+                # else: 
+                #     v_max_next = v_max_next.value
+                
 
                 #Ελέγχουμε για στάσεις κατά την διαδρομή ανάλογα με τους δρόμους που έχουν επιλεγεί για να ακολουθήσει το όχημα. 
-                if self._vehicle.get_traffic_light():
-                    if next_waypoint.get_junction():
-                        if self._vehicle.is_at_traffic_light() and not not_stop_wp: # and not not_stop_wp:
-                            traffic_stop = True 
-                            not_stop_wp = True 
-                            stop_flag = False 
+                #Πρώτα θέλουμε να ελέγχουμε την επόμενη διασταύρωση για τυχόν φανάρια. 
+                # if self._vehicle.get_traffic_light(): #Παίρνουμε το φανάρι που ανήκει στον δρόμο που είναι το αυτοκίνητο. 
+                #     print("Traffic light foungd in road :::: ", waypoint.road_id )
+                if next_waypoint.get_junction():
+                    print("Traffic light foungd in road :::: ", self._vehicle.get_traffic_light())
+                    if self._vehicle.is_at_traffic_light() and not not_stop_wp: # and not not_stop_wp:
+                        print(f"Traffic light spotted at {next_waypoint.road_id}")
+                        traffic_stop = True 
+                        not_stop_wp = True 
+                        stop_flag = False 
 
                 stop_link = self._stop_lms.get(next_waypoint.id)
                 if stop_link and not not_stop_wp: #and not_stop_wp==False :
-                    print(f"Stop sign spotted at {next_waypoint.road_id}")
                     stop_flag = True
                     not_stop_wp = True
                     traffic_stop = False
-
-
-                if stop_flag or traffic_stop:
-                    v_end_current = 0
-                else:
-                    if v_max_next >= v_max_current:
-                        v_end_current = v_max_current
-                    else:
-                        v_end_current = v_max_next
-                init_velocity = v_end_prev
-                v_end_prev = v_end_current
+                elif wps + 1 == (len(links)-1):
+                    print(f"Stop sign spotted at {next_waypoint.road_id}")
+                    stop_flag = True
+                    not_stop_wp = True
+                    traffic_stop = False    
                 
-                print(f" Initial_speed {init_velocity} and Max speed of link {v_max_current}")
-
+                if stop_flag or traffic_stop: #Αν υπάρχει οποιαδήποτε στάση
+                    v_end_current = 0 #στο τέλος της παρούσας φάσης πρέπει η ταχύτητα να γίνει μηδέν (φρενάρισμα)
+                else: #Αλλιώς θα πρέπει να ελέγξουμε την ταχύτητα στην επόμενη στάση με βάση την προηγούμενη διεργασία
+                    if v_max_next >= v_max_current: #Αν η ταχύτητα του επόμενου δρόμου είναι μεγαλύτερη από την παρούσα
+                        v_end_current = v_max_current # Η ταχύτητα στο τέλος της φάσης πρέπει να γίνει η επόμενη ώστε να μην υπάρξει επιτάχυνση
+                    else: 
+                        v_end_current = v_max_next # Η ταχύτητα στο τέλος της φάσης πρέπει να γίνει η μεθεπόμενη ώστε να υπάρξει επιτάχυνση
+                
+                init_velocity = v_end_prev #Η αρχική ταχύτητα για την πρώτη φάση είναι η ίση με την τελική ταχύτητα των προηγούμενων φάσεων. 
+                v_end_prev = v_end_current 
+                
+                print(f" Initial_speed {init_velocity} and Max speed of link {v_max_current} with end speed {v_end_current}")
+                print(f"Velocity of car {self._vehicle.get_velocity()}")
                 for phase_key, _ in phases.items():
                     if phase_key == "accelerate":
                         if init_velocity == v_max_current:

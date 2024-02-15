@@ -31,6 +31,7 @@ except IndexError:
 
 import carla
 from agents.navigation.Basic_RP_agent import Agent
+from agents.navigation.Vehicle_design import VehicleDesign,PhysicalControls,VehicleCoefficients, VehicleParts
 
 #Image specs this can be good for future projects. 
 IM_WIDTH = 640
@@ -48,7 +49,6 @@ def process_image(image):
     #cv2.imshow("",i3)
     #cv2.waitKey(1)
     return i3/255.0 #Normalize data to pass them to a neural network 
-
 
 def main():
 
@@ -78,17 +78,10 @@ def main():
         #    type=float,
         #    help='rate at which the weather changes (default: 1.0)')
         argparser.add_argument(
-            '-m', '--map',
-            help='load a new map, use --list to see available maps')
-        argparser.add_argument(
-            '-r', '--reload-map',
-            action='store_true',
-            default=False,
-            help='reload current map')
-        argparser.add_argument(
             '--osm-path',
             metavar='OSM_FILE_PATH',
-            help='load a new map with a minimum physical road representation of the provided OpenStreetMaps')
+            help='load a new map with a minimum physical road representation of the provided OpenStreetMaps',
+            type=str)
         argparser.add_argument(
             '-s', '--seed',
             help='Set seed for repeating executions (default: None)',
@@ -99,7 +92,10 @@ def main():
             action='store_true',
             default = False,
             help='Synchronous mode execution')
-        
+        argparser.add_argument(
+            '--json-file', 
+            default=None,
+            help='Provide Absolut path of the json file')
         if len(sys.argv) < 1:
             argparser.print_help()
             return
@@ -146,23 +142,24 @@ def main():
             bp.set_attribute('color',color)
         bp.set_attribute('role_name','hero')
 
-        location = carla.Location(x=60.2, y = 123.4, z=0)
-        sp_wp = map.get_waypoint(location)
+        #location = carla.Location(x=60.2, y = 123.4, z=0)
+        sp_wp = map.get_waypoint(st_point)
         start_wp = sp_wp.transform.location 
         sp = carla.Transform(carla.Location(x = start_wp.x, y = start_wp.y, z = start_wp.z),sp_wp.transform.rotation)
-        sp.location.z += 2 
+        sp.location.z += 2.5 
 
         vehicle = sim_world.spawn_actor(bp,sp)
+        print("Type of the vehicle object is " , type(vehicle))
         actor_list.append(vehicle)
         print('Created %s' % vehicle.type_id)
 
-        destination_location = carla.Location(x=-23.6,y=40,z=0)
-        dest_wp = map.get_waypoint(destination_location)
-        wp = dest_wp.transform.location
-        dest = carla.Transform(carla.Location(x=wp.x, y=wp.y, z = wp.z),dest_wp.transform.rotation)
-        dest.location.z +=2
 
-        ego_vehicle_speed = vehicle.get_velocity()
+        # destination_location = carla.Location(x=-23.6,y=40,z=0)
+        # dest_wp = map.get_waypoint(destination_location)
+        # wp = dest_wp.transform.location
+        # dest = carla.Transform(carla.Location(x=wp.x, y=wp.y, z = wp.z),dest_wp.transform.rotation)
+        # dest.location.z +=2
+
         #We are able to configure vehicle's physics as below: 
         front_left_wheel = carla.WheelPhysicsControl(tire_friction = 2.0, damping_rate = 1.5, max_steer_angle = 70.0,long_stiff_value=1000)
         front_right_wheel = carla.WheelPhysicsControl(tire_friction = 2.0, damping_rate = 1.5, max_steer_angle = 70.0,long_stiff_value=1000)
@@ -181,7 +178,7 @@ def main():
                                         carla.Vector2D(x=12000,y=77.5)]
         physics_control.max_rmp = 18000
         physics_control.moi = 1.0 
-        physics_control.dampingr_rate_full_throttle = 0.0
+        physics_control.damping_rate_full_throttle = 0.0
         physics_control.use_gear_autobox = True 
         physics_control.gear_switch_time = 0.5
         physics_control.clutch_strength= 10
@@ -193,14 +190,45 @@ def main():
 
         vehicle.apply_physics_control(physics_control)
         #print(physics_control)
+        #***************************************************#
+        velocities = {'speed_30' : 30 * 0.27778, 
+                      'speed_60' : 60 * 0.27778,
+                      'speed_90' : 90 * 0.27778,
+                      'speed_100' : 100 * 0.27778} 
 
+        time_travel = {(0,velocities['speed_30']): 2.40,
+                       (0,velocities['speed_60']): 3.90,
+                       (0,velocities['speed_90']): 6.08,
+                       (0,velocities['speed_100']): 6.90,
+                       (velocities['speed_30'],velocities['speed_60']): 1.28,
+                       (velocities['speed_30'],velocities['speed_90']): 3.81,
+                       (velocities['speed_60'],velocities['speed_90']): 1.99,
+                       (velocities['speed_90'],velocities['speed_60']): 1.03,
+                       (velocities['speed_90'],velocities['speed_30']): 2.12,
+                       (velocities['speed_90'],0): 2.84,
+                       (velocities['speed_60'],velocities['speed_30']): 1.28,
+                       (velocities['speed_60'],0): 1.78,
+                       (velocities['speed_30'],0): 1.08}
+
+        vehicle_coeffs = VehicleCoefficients(A_coef=35.745,B_coef=0.38704,C_coef=0.018042,
+                                               d_coef=1.1,P_aux=520, velocities=velocities, time_travel=time_travel)
+        veh_parts = VehicleParts(vehicle)
+        ph_objects = PhysicalControls(physics_control)
+        vehicle_design = VehicleDesign(model="etron", company="Audi",
+                                        physical_controls=ph_objects,
+                                        vehicle_parts=veh_parts,
+                                        vehicle_coefficients=vehicle_coeffs)
+        print(vehicle_design)
+        vehicle_design.to_json_file(vehicle.__dict__,"vehicle.json"); 
+
+        #****************************************************#
         #To have a sort of self-driving car 
         #vehicle.set_autopilot(True)
         #vehicle.apply_control(carla.VehicleControl(throttle=1.0,steer=0.0,brake = 0.0 , hand_brake=False, reverse = False, manual_gear_shift = False))
         oct_dictionary = {'ignore_traffic_lights':False,
                           'ignore_stop_signs': False,
                           'ignore_vehicles': False}
-        agent = Agent(vehicle,30,opt_dict=oct_dictionary) #The Basic RP planner will handle the control of the vehicle. 
+        agent = Agent(vehicle, vehicle_coeffs,30,opt_dict=oct_dictionary) #The Basic RP planner will handle the control of the vehicle. 
         agent.follow_speed_limits(True)
         agent.ignore_stop_signs(False)
         #agent.set_destination(fin_point.location,st_point.location)
@@ -260,7 +288,6 @@ def main():
                 #agent.set_destination(random.choice(spawn_points).location)
                 print("The target has been reached, stopping the simulation")
                 break
-            
             control = agent.run_step()
             control.manual_gear_shift = False 
             vehicle.apply_control(control)

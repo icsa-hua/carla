@@ -71,12 +71,11 @@ def main():
             default=2000,
             type=int,
             help='TCP port to listen to (default: 2000)')
-        #argparser.add_argument(
-        #    '-s', '--speed',
-        #    metavar='FACTOR',
-        #    default=1.0,
-        #    type=float,
-        #    help='rate at which the weather changes (default: 1.0)')
+        argparser.add_argument(
+                '--verbose', 
+                default = False, 
+                help='Select if you want to show the plots for the route establishment'
+        )
         argparser.add_argument(
             '--osm-path',
             metavar='OSM_FILE_PATH',
@@ -93,9 +92,9 @@ def main():
             default = False,
             help='Synchronous mode execution')
         argparser.add_argument(
-            '--json-file', 
+            '--json', 
             default=None,
-            help='Provide Absolut path of the json file')
+            help='Provide absolute path of the json file')
         if len(sys.argv) < 1:
             argparser.print_help()
             return
@@ -165,7 +164,7 @@ def main():
         front_right_wheel = carla.WheelPhysicsControl(tire_friction = 2.0, damping_rate = 1.5, max_steer_angle = 70.0,long_stiff_value=1000)
         rear_left_wheel = carla.WheelPhysicsControl(tire_friction = 3.0, damping_rate = 1.5, max_steer_angle = 0.0,long_stiff_value=1000)
         rear_right_wheel = carla.WheelPhysicsControl(tire_friction = 3.0, damping_rate = 1.5, max_steer_angle = 0.0,long_stiff_value=1000)
-
+        
         wheels = [front_left_wheel,front_right_wheel,rear_left_wheel,rear_right_wheel]
 
         physics_control = vehicle.get_physics_control()
@@ -182,7 +181,7 @@ def main():
         physics_control.use_gear_autobox = True 
         physics_control.gear_switch_time = 0.5
         physics_control.clutch_strength= 10
-        physics_control.mass = 2.490
+        physics_control.mass = 2490
         physics_control.drag_coefficient = 0.27 
         physics_control.steering_curve = [carla.Vector2D(x=0,y=1),carla.Vector2D(x=100,y=1), carla.Vector2D(x=300,y=1)]
         physics_control.use_sweep_wheel_collision = True 
@@ -191,35 +190,88 @@ def main():
         vehicle.apply_physics_control(physics_control)
         #print(physics_control)
         #***************************************************#
-        velocities = {'speed_30' : 30 * 0.27778, 
-                      'speed_60' : 60 * 0.27778,
-                      'speed_90' : 90 * 0.27778,
-                      'speed_100' : 100 * 0.27778} 
+        velocities = {'speed_10' : 10 ,
+                      'speed_20' : 20 , 
+                      'speed_30' : 30 ,
+                      'speed_40' : 40 , 
+                      'speed_50' : 50 , 
+                      'speed_60' : 60 ,
+                      'speed_70' : 70 ,
+                      'speed_80' : 80 , 
+                      'speed_90' : 90 ,
+                      'speed_100' : 100} 
 
-        time_travel = {(0,velocities['speed_30']): 2.40,
-                       (0,velocities['speed_60']): 3.90,
-                       (0,velocities['speed_90']): 6.08,
-                       (0,velocities['speed_100']): 6.90,
-                       (velocities['speed_30'],velocities['speed_60']): 1.28,
-                       (velocities['speed_30'],velocities['speed_90']): 3.81,
-                       (velocities['speed_60'],velocities['speed_90']): 1.99,
-                       (velocities['speed_90'],velocities['speed_60']): 1.03,
-                       (velocities['speed_90'],velocities['speed_30']): 2.12,
-                       (velocities['speed_90'],0): 2.84,
-                       (velocities['speed_60'],velocities['speed_30']): 1.28,
-                       (velocities['speed_60'],0): 1.78,
-                       (velocities['speed_30'],0): 1.08}
+        time_travel = {(0,velocities['speed_10']): 1.41, (velocities['speed_10'],0): 0.49,
+                       (0,velocities['speed_20']): 2.05, (velocities['speed_20'],0): 0.75,
+                       (0,velocities['speed_30']): 2.40, (velocities['speed_30'],0): 1.08,
+                       (0,velocities['speed_40']): 3.03, (velocities['speed_40'],0): 1.22, 
+                       (0,velocities['speed_50']): 3.50, (velocities['speed_50'],0): 1.49,
+                       (0,velocities['speed_60']): 3.90, (velocities['speed_60'],0): 1.78, 
+                       (0,velocities['speed_70']): 4.58, (velocities['speed_70'],0): 2.07,
+                       (0,velocities['speed_80']): 5.35, (velocities['speed_80'],0): 2.48,
+                       (0,velocities['speed_90']): 6.08, (velocities['speed_90'],0): 2.84,
+                       (0,velocities['speed_100']): 6.90, (velocities['speed_100'],0): 3.05,
+                       (velocities['speed_10'],velocities['speed_20']): 0.88, (velocities['speed_20'],velocities['speed_10']): 0.41,
+                       (velocities['speed_10'],velocities['speed_30']): 1.53, (velocities['speed_30'],velocities['speed_10']): 0.74,
+                       (velocities['speed_10'],velocities['speed_40']): 2.12, (velocities['speed_40'],velocities['speed_10']): 0.98,
+                       (velocities['speed_10'],velocities['speed_50']): 2.57, (velocities['speed_50'],velocities['speed_10']): 1.17,
+                       (velocities['speed_10'],velocities['speed_60']): 2.89, (velocities['speed_60'],velocities['speed_10']): 1.30,
+                       (velocities['speed_10'],velocities['speed_70']): 3.51, (velocities['speed_70'],velocities['speed_10']): 1.76,
+                       (velocities['speed_10'],velocities['speed_80']): 3.82, (velocities['speed_80'],velocities['speed_10']): 2.11,
+                       (velocities['speed_10'],velocities['speed_90']): 4.60, (velocities['speed_90'],velocities['speed_10']): 2.45,
+                       (velocities['speed_10'],velocities['speed_100']): 5.59,(velocities['speed_100'],velocities['speed_10']): 2.89,
+                       (velocities['speed_20'],velocities['speed_30']): 0.53, (velocities['speed_30'],velocities['speed_20']): 0.43,
+                       (velocities['speed_20'],velocities['speed_40']): 1.26, (velocities['speed_40'],velocities['speed_20']): 0.87,
+                       (velocities['speed_20'],velocities['speed_50']): 1.85, (velocities['speed_50'],velocities['speed_20']): 1.05,
+                       (velocities['speed_20'],velocities['speed_60']): 2.42, (velocities['speed_60'],velocities['speed_20']): 1.36,
+                       (velocities['speed_20'],velocities['speed_70']): 2.80, (velocities['speed_70'],velocities['speed_20']): 1.72,
+                       (velocities['speed_20'],velocities['speed_80']): 3.39, (velocities['speed_80'],velocities['speed_20']): 2.01,
+                       (velocities['speed_20'],velocities['speed_90']): 3.92, (velocities['speed_90'],velocities['speed_20']): 2.31,
+                       (velocities['speed_20'],velocities['speed_100']): 4.87, (velocities['speed_100'],velocities['speed_20']): 2.60,
+                       (velocities['speed_30'],velocities['speed_40']): 0.79, (velocities['speed_40'],velocities['speed_30']): 0.60,
+                       (velocities['speed_30'],velocities['speed_50']): 1.37, (velocities['speed_50'],velocities['speed_30']): 0.98,
+                       (velocities['speed_30'],velocities['speed_60']): 1.87, (velocities['speed_60'],velocities['speed_30']): 1.28,
+                       (velocities['speed_30'],velocities['speed_70']): 2.26, (velocities['speed_70'],velocities['speed_30']): 1.49,
+                       (velocities['speed_30'],velocities['speed_80']): 2.72, (velocities['speed_80'],velocities['speed_30']): 1.84,
+                       (velocities['speed_30'],velocities['speed_90']): 3.81, (velocities['speed_90'],velocities['speed_30']): 2.12,
+                       (velocities['speed_30'],velocities['speed_100']): 4.43, (velocities['speed_100'],velocities['speed_30']): 2.48,
+                       (velocities['speed_40'],velocities['speed_50']): 0.84, (velocities['speed_50'],velocities['speed_40']): 0.55,
+                       (velocities['speed_40'],velocities['speed_60']): 1.57, (velocities['speed_60'],velocities['speed_40']): 0.88,
+                       (velocities['speed_40'],velocities['speed_70']): 1.96, (velocities['speed_70'],velocities['speed_40']): 1.10,
+                       (velocities['speed_40'],velocities['speed_80']): 2.48, (velocities['speed_80'],velocities['speed_40']): 1.42,
+                       (velocities['speed_40'],velocities['speed_90']): 3.10, (velocities['speed_90'],velocities['speed_40']): 1.79,
+                       (velocities['speed_40'],velocities['speed_100']): 3.83, (velocities['speed_100'],velocities['speed_40']): 2.07,
+                       (velocities['speed_50'],velocities['speed_60']): 0.69, (velocities['speed_60'],velocities['speed_50']): 0.44,
+                       (velocities['speed_50'],velocities['speed_70']): 1.38, (velocities['speed_70'],velocities['speed_50']): 0.69,
+                       (velocities['speed_50'],velocities['speed_80']): 1.92, (velocities['speed_80'],velocities['speed_50']): 0.96,
+                       (velocities['speed_50'],velocities['speed_90']): 2.66, (velocities['speed_90'],velocities['speed_50']): 1.22,
+                       (velocities['speed_50'],velocities['speed_100']): 3.43, (velocities['speed_100'],velocities['speed_50']): 1.64,
+                       (velocities['speed_60'],velocities['speed_70']): 0.78, (velocities['speed_70'],velocities['speed_60']): 0.48,
+                       (velocities['speed_60'],velocities['speed_80']): 1.34, (velocities['speed_80'],velocities['speed_60']): 0.77,
+                       (velocities['speed_60'],velocities['speed_90']): 1.99, (velocities['speed_90'],velocities['speed_60']): 1.03,
+                       (velocities['speed_60'],velocities['speed_100']): 2.63, (velocities['speed_100'],velocities['speed_60']): 1.2,
+                       (velocities['speed_70'],velocities['speed_80']): 0.69, (velocities['speed_80'],velocities['speed_70']): 0.50,
+                       (velocities['speed_70'],velocities['speed_90']): 1.41, (velocities['speed_90'],velocities['speed_70']): 0.69,
+                       (velocities['speed_70'],velocities['speed_100']): 1.93, (velocities['speed_100'],velocities['speed_70']): 0.99,
+                       (velocities['speed_80'],velocities['speed_90']): 0.78, (velocities['speed_90'],velocities['speed_80']): 0.40,
+                       (velocities['speed_80'],velocities['speed_100']): 1.20, (velocities['speed_100'],velocities['speed_80']): 0.78,
+                       (velocities['speed_90'],velocities['speed_100']): 0.68, (velocities['speed_100'],velocities['speed_90']): 0.45}
+
 
         vehicle_coeffs = VehicleCoefficients(A_coef=35.745,B_coef=0.38704,C_coef=0.018042,
                                                d_coef=1.1,P_aux=520, velocities=velocities, time_travel=time_travel)
         veh_parts = VehicleParts(vehicle)
         ph_objects = PhysicalControls(physics_control)
-        vehicle_design = VehicleDesign(model="etron", company="Audi",
-                                        physical_controls=ph_objects,
-                                        vehicle_parts=veh_parts,
-                                        vehicle_coefficients=vehicle_coeffs)
-        print(vehicle_design)
-        vehicle_design.to_json_file(vehicle.__dict__,"vehicle.json"); 
+        vehicle_design = VehicleDesign(model="etron",
+                                       company="Audi",
+                                       physical_controls=ph_objects,
+                                       vehicle_parts=veh_parts,
+                                       vehicle_coefficients=vehicle_coeffs)
+        print("Printing the vehicle desing in JSON form ")
+        print(vehicle_design.to_dict())
+        vehicle_design.save_to_json_file("vehicle.json"); 
+        print("Saveing everything to a jason file...")
+        time.sleep(60)
 
         #****************************************************#
         #To have a sort of self-driving car 
@@ -228,7 +280,7 @@ def main():
         oct_dictionary = {'ignore_traffic_lights':False,
                           'ignore_stop_signs': False,
                           'ignore_vehicles': False}
-        agent = Agent(vehicle, vehicle_coeffs,30,opt_dict=oct_dictionary) #The Basic RP planner will handle the control of the vehicle. 
+        agent = Agent(vehicle=vehicle, vehicle_coeffs=vehicle_coeffs,target_speed=30,opt_dict=oct_dictionary,verbose=args.verbose) #The Basic RP planner will handle the control of the vehicle. 
         agent.follow_speed_limits(True)
         agent.ignore_stop_signs(False)
         #agent.set_destination(fin_point.location,st_point.location)
@@ -252,11 +304,11 @@ def main():
         actor_list.append(sensor)
         print('Created %s' % sensor.type_id)
 
-        for tl in sim_world.get_actors().filter('traffic.traffic_light*'):
-            # Trigger/bounding boxes contain half extent and offset relative to the actor.
-            trigger_transform = tl.get_transform()
-            trigger_transform.location += tl.trigger_volume.location
-            trigger_extent = tl.trigger_volume.extent
+        # for tl in sim_world.get_actors().filter('traffic.traffic_light*'):
+        #     # Trigger/bounding boxes contain half extent and offset relative to the actor.
+        #     trigger_transform = tl.get_transform()
+        #     trigger_transform.location += tl.trigger_volume.location
+        #     trigger_extent = tl.trigger_volume.extent
 
 
         #how to get the data from sensor. 
@@ -280,6 +332,12 @@ def main():
         while True:
             time = time + 1         
             spectator.set_transform(camera.get_transform())
+
+
+
+
+
+
 
             #vehicle.apply_control(agent.run_step())
             if agent.done(): 

@@ -17,7 +17,10 @@ from statistics import mean
 
 import carla
 from agents.navigation.local_planner import RoadOption
-from agents.navigation.energy_estimation import energy_model
+from agents.navigation.energy_estimation import EnergyModelEstimation
+from agents.navigation.hybridga import HybridGA
+
+#from agents.navigation.pso_pfa import PSO
 from agents.tools.misc import vector
 
 
@@ -29,11 +32,11 @@ class RoutePlanner(object):
         self._graph = None
         self._id_map = None
         self._road_id_to_edge = None
-        self._waypoint_queue = deque(maxlen=10000)
         self.copy_graph = None
         self._intersection_end_node = -1
         self._previous_decision = RoadOption.VOID 
         self._vehicle = None
+        self._vehicle_coeffs = []
         self._energy_cost = []
 
         # Build the graph
@@ -42,12 +45,14 @@ class RoutePlanner(object):
         self._find_loose_ends()
         self._lane_change_link()
 
-    def trace_route(self,origin,destination,vehicle): 
+    def trace_route(self,origin,destination,vehicle,vehicle_coefficients,verbose): 
         """
         This method returns list of (carla.Waypoint, RoadOption)
         from origin to destination
         """
         self._vehicle = vehicle
+        self._vehicle_coeffs = vehicle_coefficients
+        self._verbose = verbose 
         route_trace = []
         best_route = []
         best_paths = []
@@ -58,11 +63,12 @@ class RoutePlanner(object):
         for _ in range(npaths):
             
             route = self._path_search(origin, destination) #Returns a list of nodes for the best possible path based on copy graph. 
-            print(f"The path to follow {route}")
+            
             if not route: 
                print("Not another path available")
                break
-            
+            else: 
+                print(f"The path to follow {route}")
             self.copy_graph.remove_edges_from(zip(route,route[1:]))
             route_trace.clear()
 
@@ -98,17 +104,23 @@ class RoutePlanner(object):
                                 break
             
             best_paths.append(route_trace)
-
-        best_route = best_paths[0]
-        
-        EEM = energy_model(self._vehicle,best_paths,self._wmap,origin,destination,self._id_map)
-        self._energy_cost,total_distance,total_travel_time = EEM.energy_estimation()
-        print(f"Total Distance of the links {total_distance}")
-        print(f"The total time of the link is {total_travel_time}")
-        #Energy_cost = self._energy_estimation_heuristic(origin,destination,best_paths)
+    
+        tmp = best_paths.copy()
+        EME = EnergyModelEstimation(vehicle=self._vehicle, vehicle_coeffs=self._vehicle_coeffs,possible_routes=tmp,wmap=self._wmap,origin=origin,road_ids=self._id_map, verbose=self._verbose)
+        self._energy_cost,total_distance,total_travel_time,number_of_stops = EME.energy_estimation()
+        final_factor = 1000000
+        index = 0 
         for i in range(0,len(self._energy_cost)):
-            print(f"The energy cost for {i + 1} possible paths is {self._energy_cost[i]} ")
-            
+            print(f"Total number of stops is {number_of_stops}")
+            print(f"The energy cost for {i + 1} possible paths is  | {self._energy_cost[i]} |")
+            print(f"Total Distance Of Route | {total_distance[i]} | for path {i + 1}")
+            print(f"The total time of the link is | {total_travel_time[i]} | for path {i + 1}")
+            if final_factor > (int(self._energy_cost[i]+total_travel_time[i]+total_distance[i])):
+                final_factor = (int(self._energy_cost[i]+total_travel_time[i]+total_distance[i]))
+                index = i
+        
+        best_route = best_paths[index]
+
         return best_route
     
 
@@ -330,15 +342,25 @@ class RoutePlanner(object):
         return      :   path as list of node ids (as int) of the graph self._graph
         connecting origin and destination
         """
+
         start, end = self._localize(origin), self._localize(destination)
         route = []
+        routeB = []
+
         #Deep copy of the original graph. 
         try:
-            route = nx.astar_path( self.copy_graph, source=start[0], target=end[0],heuristic=self._distance_heuristic, weight='length')
+            route = nx.astar_path(self.copy_graph, source=start[0], target=end[0],heuristic=self._distance_heuristic, weight='length')
+            print("Best path based on A* is :", route)
+            hga = HybridGA(start=start, finish=end ,map=self._wmap,graph=self._graph, population_size=50, generations=100, mutation_rate=0.2)
+            #pso = PSO(self.copy_graph,start,end,num_particles=10,num_iterations=100)
+            #routeB = pso.pso()
+            
         except(KeyError, nx.exception.NetworkXNoPath):
             print("Got Exception so not another path available")
            
         #Here the energy estimation will occur for every possible path. 
+        #print("Best path based on A* is :", route)
+        #print("Best path based on PSO is :", routeB)
 
         return route
     
@@ -437,11 +459,3 @@ class RoutePlanner(object):
                 closest_index = i
 
         return closest_index
-
-
-
-
-
-            
-
-

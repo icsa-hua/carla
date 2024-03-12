@@ -21,7 +21,7 @@ class Agent:
 
 
 
-    def __init__(self,vehicle, target_speed = 20 ,opt_dict = {},map_inst=None,grp_inst = None):
+    def __init__(self,vehicle, vehicle_coeffs, target_speed = 20 ,opt_dict = {},map_inst=None,grp_inst = None, verbose=False):
         
         """
         Initialization the agent paramters, the local and the global planner.
@@ -36,6 +36,8 @@ class Agent:
         """
 
         self._vehicle = vehicle
+        self._vehicle_coeffs = vehicle_coeffs
+        self._verbose = verbose
         self._world = self._vehicle.get_world()
         if map_inst:
             if isinstance(map_inst, carla.Map):
@@ -173,7 +175,7 @@ class Agent:
         """
         start_location = start_waypoint.transform.location
         end_location = end_waypoint.transform.location
-        return self._route_planner.trace_route(start_location, end_location,self._vehicle) 
+        return self._route_planner.trace_route(start_location, end_location,self._vehicle,self._vehicle_coeffs,self._verbose) 
         
 
     def run_step(self):

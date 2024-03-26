@@ -21,7 +21,7 @@ class Agent:
 
 
 
-    def __init__(self,vehicle, vehicle_coeffs, target_speed = 20 ,opt_dict = {},map_inst=None,grp_inst = None, verbose=False):
+    def __init__(self,vehicle, vehicle_coeffs, target_speed=30, opt_dict={}, map_inst=None, grp_inst=None, verbose=False, pfa_inst=None):
         
         """
         Initialization the agent paramters, the local and the global planner.
@@ -60,6 +60,7 @@ class Agent:
         self._speed_ratio = 1
         self._max_brake = 0.5
         self._offset = 0 
+        self._pfa = pfa_inst
 
         #Change parameters according to the dictionary 
         opt_dict['target_speed'] = target_speed
@@ -91,9 +92,9 @@ class Agent:
                 self._route_planner = grp_inst
             else:
                 print("Warning: Ignoring the given map as it is not a 'carla.Map'")
-                self._route_planner = RoutePlanner(self._map, self._sampling_resolution)
+                self._route_planner = RoutePlanner(self._map, self._sampling_resolution,self._vehicle,self._vehicle_coeffs,self._verbose, self._pfa)
         else:
-            self._route_planner = RoutePlanner(self._map, self._sampling_resolution)
+            self._route_planner = RoutePlanner(self._map, self._sampling_resolution,self._vehicle,self._vehicle_coeffs,self._verbose, self._pfa)
 
         # Get the static elements of the scene
         self._lights_list = self._world.get_actors().filter("*traffic_light*")
@@ -153,7 +154,6 @@ class Agent:
 
         start_waypoint = self._map.get_waypoint(start_location)
         end_waypoint = self._map.get_waypoint(end_location)
-        print(f"Starting wp is {start_waypoint}")
         route_trace = self.trace_route(start_waypoint, end_waypoint)
         self._local_planner.set_global_plan(route_trace, clean_queue=clean_queue)
         
@@ -175,7 +175,7 @@ class Agent:
         """
         start_location = start_waypoint.transform.location
         end_location = end_waypoint.transform.location
-        return self._route_planner.trace_route(start_location, end_location,self._vehicle,self._vehicle_coeffs,self._verbose) 
+        return self._route_planner.trace_route(start_location, end_location) 
         
 
     def run_step(self):
@@ -298,7 +298,7 @@ class Agent:
                 self._last_traffic_light = traffic_light
                 return (True, traffic_light)
 
-         
+            
         return (False, None)
 
     def _vehicle_obstacle_detected(self,vehicle_list=None, max_distance = None, up_angle_th=90, low_angle_th =0, lane_offset=0):

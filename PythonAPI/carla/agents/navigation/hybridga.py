@@ -5,15 +5,19 @@ import time
 import carla 
 from agents.tools.misc import vector
 from agents.navigation.local_planner import RoadOption
+from agents.navigation.aco import ACO
+import pygad
 
 
 class HybridGA():
 
-    def __init__(self, start, finish,map,graph,  population_size, generations, mutation_rate):
+    def __init__(self, start, finish,map, graph,  population_size, generations, mutation_rate):
         self._map = map 
         self._start = start 
-        self._finish= finish
-        self._population = population_size
+        self._finish = finish
+        self._population_size = population_size
+        self._tournament_size = 100
+        self._parents_mating = 2
         self._generations = generations
         self._mutation_rate = mutation_rate 
         self._id_map = None
@@ -24,15 +28,21 @@ class HybridGA():
         self._speed_lms = {}
         self._topology = None
         self._hga_graph = None
-
+        self._parent_selection = "sss"
+        self._keep_parents = 1 
+        self._crossover_type = "single_point"
+        self._mutation_type = "random"
+        self._mutation_percent_genes = 10
         self._build_topology()
         self._create_graph()
         self._find_loose_ends()
         self._lane_change_link()
+        self._hga_graph = nx.DiGraph(self._hga_graph)
+        self._ACO = ACO(graph=self._hga_graph, source=self._start, target=self._finish)
 
+        self._paths = self.find_paths(self._hga_graph,self._start[0],self._finish[0])
+        self._num_genes = len(self._paths)
         self._routes = self.Pareto_GA(replacement_rate=0.2)
-        print(self._routes)
-        time.sleep(1000)
 
     def _build_topology(self): 
         """
@@ -75,7 +85,6 @@ class HybridGA():
                 seg_dict['path'].append(next_wps[0])
             self._topology.append(seg_dict) 
     
-    
     def _create_graph(self): 
         #Νομίζω η καλύτερη λύση είναι να έχω για κόστος την απόσταση των δύο σημείων, 
         #το αντίστοιχο ease of driving, και να βρω τον χρόνο σαν συνάρτηση του χρόνου με τη μέγιστη ταχύτητα του εκάστοτε δρόμου 
@@ -89,11 +98,11 @@ class HybridGA():
         speed_limits = self._map.get_all_landmarks_of_type('274')
         speed_lms = {lm.road_id: lm for lm in speed_limits}
         self._speed_lms = speed_lms
-        self._hga_graph = nx.Graph()
+        self._hga_graph = nx.DiGraph()
         self._id_map = dict()  # Map with structure {(x,y,z): id, ... }
         self._road_id_to_edge = dict()  # Map with structure {road_id: {lane_id: edge, ... }, ... }
-        # print(self._topology)
-        # print("Topology")
+
+
         for segment in self._topology: 
             enter_pos, exit_pos = segment['entryxyz'], segment['exitxyz']
             path = segment['path']
@@ -104,9 +113,8 @@ class HybridGA():
             if road_id not in speed_lms: 
                 speed_lms[road_id] = 30
             time_distance = edge_distance/speed_lms[road_id]
-            weight = np.random.randint(1,100)
+            weight = np.random.randint(1,10)
             self._cost_matrix[(enter_wp,exit_wp)] = [edge_distance, time_distance, weight]
-            print(f"Waypoints {(enter_wp,exit_wp)} with time {time_distance} and distance {edge_distance} and weight {weight}")
             for vertex in enter_pos, exit_pos:
                 # Adding unique nodes and populating id_map
                 if vertex not in self._id_map:
@@ -170,9 +178,8 @@ class HybridGA():
                     if (exit_wp,path[-1]) not in self._cost_matrix:
                         edge_distance = (np.sqrt((n2_xyz[1]-exit_pos[1])**2 + (n2_xyz[0]-exit_pos[0])**2 + (n2_xyz[2]-exit_pos[2])**2))
                         time_distance = edge_distance/self._speed_lms[exit_wp.road_id]
-                        weight = np.random.randint(1,100)
+                        weight = np.random.randint(1,10)
                         self._cost_matrix[(exit_wp,path[-1])] = [edge_distance, time_distance, weight]
-                        print("Position inside the find looseee")
 
                     self._hga_graph.add_edge(
                         n1, n2,
@@ -181,7 +188,6 @@ class HybridGA():
                         entry_vector=None, exit_vector=None, net_vector=None,
                         intersection=exit_wp.is_junction, type=RoadOption.LANEFOLLOW,
                         time=self._cost_matrix[(exit_wp,path[-1])][1], ease_of_driving=self._cost_matrix[(exit_wp,path[-1])][0],weight=self._cost_matrix[(exit_wp,path[-1])][2])
-    
     
     def _lane_change_link(self): 
         """
@@ -207,9 +213,9 @@ class HybridGA():
                                 if (waypoint, next_waypoint) not in self._cost_matrix:
                                     edge_distance = (np.sqrt((next_waypoint.transform.location.x-waypoint.transform.location.x)**2 + (next_waypoint.transform.location.y-waypoint.transform.location.y)**2 + (next_waypoint.transform.location.z-waypoint.transform.location.z)**2))
                                     time_distance = edge_distance/self._speed_lms[waypoint.road_id]
-                                    weight = np.random.randint(1,100)
+                                    weight = np.random.randint(1,10)
                                     self._cost_matrix[(waypoint, next_waypoint)] = [edge_distance, time_distance,weight]
-                                    print("Position inside the right junction")
+                                    # print("Position inside the right junction")
 
                                 self._hga_graph.add_edge(
                                     self._id_map[segment['entryxyz']], next_segment[0], entry_waypoint=waypoint,
@@ -229,9 +235,9 @@ class HybridGA():
                                 if (waypoint, next_waypoint) not in self._cost_matrix:
                                     edge_distance = (np.sqrt((next_waypoint.transform.location.x-waypoint.transform.location.x)**2 + (next_waypoint.transform.location.y-waypoint.transform.location.y)**2 + (next_waypoint.transform.location.z-waypoint.transform.location.z)**2))
                                     time_distance = edge_distance/self._speed_lms[waypoint.road_id]
-                                    weight = np.random.randint(1,100)
+                                    weight = np.random.randint(1,10)
                                     self._cost_matrix[(waypoint, next_waypoint)] = [edge_distance, time_distance,weight]
-                                    print("Position inside the left junction")
+                                    # print("Position inside the left junction")
                                 self._hga_graph.add_edge(
                                     self._id_map[segment['entryxyz']], next_segment[0], entry_waypoint=waypoint,
                                     exit_waypoint=next_waypoint, intersection=False, exit_vector=None,
@@ -254,52 +260,89 @@ class HybridGA():
             pass
         return edge
     
-    def calculate_fitness(self,path):
+    def find_paths(self, G, start, end, path=[], max_depth=15):
+        path = path + [start]
+        if start == end:
+            return [path]
+        if len(path) > max_depth:
+            return []
+        paths = []
+        for node in G.neighbors(start):
+            if node not in path:
+                newpaths = self.find_paths(G, node, end, path, max_depth)
+                for newpath in newpaths:
+                    paths.append(newpath)
+        return paths
+
+    def fitness_func(self, path):
+        fitness = []
+
+        #Provide max values why? because we want to use them as the scale component for each element. 
+        max_time = 50 #Assume maximum time of 50 seconds 
+        max_distance = 200 #Assume maximum distance between nodes. 
+        max_weight = 10
+
+        #Weights for each component 
+        weight_time = 0.4 
+        weight_ease = 0.4 
+        weight_weight = 0.2 
+
+        #Initialize metrics 
         travel_time = 0 
         ease_of_driving = 0
         weights = 0
-        scaling_factor = 0.75
+
         for i in range(len(path)-1):
             source_node = path[i]
             target_node = path[i+1]
 
             if self._hga_graph.has_edge(source_node,target_node):
-                # edge_attributes = self._graph[source_node][target_node]
+
                 edge_attributes = self._hga_graph.get_edge_data(source_node,target_node)
                 travel_time += edge_attributes['time']
                 ease_of_driving += edge_attributes['ease_of_driving']
                 weights += edge_attributes['weight']
-                # print("Is a link ", travel_time, ease_of_driving, weights) 
+
             else: 
                 #Handle the case for where the edge does not exist for example assign a penalty 
-                travel_time +=1000
-                ease_of_driving += 60
+                travel_time += 200
+                ease_of_driving += 500
                 weights += 50
-                # print("Is  not a link ", travel_time, ease_of_driving, weights)  
 
-        return -(travel_time + (ease_of_driving*scaling_factor) + (weights*(1-scaling_factor)))    
+        #Normalize values based on factors 
+        normalized_time = travel_time/max_time
+        normalized_ease = ease_of_driving/max_distance
+        normalized_weights = weights/max_weight
+
+        fit = -(weight_time*normalized_time) + (weight_ease*normalized_ease) + (weight_weight*normalized_weights)
+        fitness.append(fit)
+            
+        return fitness
     
     def initialize_population(self, num_individuals,nodes, min_length, max_length):
+        #TODO: Change the paramteres needed. 
         population = [] 
-        for _ in range(num_individuals):
-            #Generate random path 
-            path_length = np.random.randint(min_length,max_length+1)
+        population = self._ACO._ant_colony_optimization()
+        print(f"Initialized population with ACO and length {len(population)}")
+        return population  
 
-            middle_nodes = np.random.choice([node for node in nodes if node not in [self._start[0], self._finish[0]]], size=(path_length-2),replace=False)
-        
-            individual = [self._start[0]] + list(middle_nodes) + [self._finish[0]]
-            population.append(individual)
-        
-        # print("Initializing population completing...")
-        #Randomly generated individuals 
-        return population
-    
+    def selection(self, fitness_values):
+        #Selection step
+        selected_indices = [] 
+        self._tournament_size = self._population_size//2
+        for _ in range(int(self._population_size/2)):
+            tournament_indices = np.random.choice(range(len(fitness_values)), size=self._tournament_size, replace=False)
+            tournament_fitness = [fitness_values[i] for i in tournament_indices]
+
+            best_individual_idx = tournament_indices[np.argmin(tournament_fitness)]
+            selected_indices.append(best_individual_idx)
+
+        return selected_indices
 
     def crossover(self,p1, p2):
         #Combines parts of two selected paths to create offsprings
-        # print("Crossover processing...")
-        # Find common nodes between p1 and p2 that are also connected in the graph
-        # print(p1)
+
+        # Find common nodes between p1 and p2 that are also connected in the graph        
         common_nodes = [node for node in p1 if node in p2 and self._hga_graph.has_node(node)]
         connected_common_nodes = [node for i, node in enumerate(common_nodes[:-1]) if self._hga_graph.has_edge(node, common_nodes[i + 1])]
 
@@ -308,6 +351,7 @@ class HybridGA():
             return p1 if np.random.rand() > 0.5 else p2
         
         crossover_point = np.random.choice(connected_common_nodes)
+        
         # Find the indices of the crossover point in both parents
         cp_index_p1 = p1.index(crossover_point)
         cp_index_p2 = p2.index(crossover_point)
@@ -317,27 +361,30 @@ class HybridGA():
         child = [p1[0]] + p1[:cp_index_p1 + 1] + p2[cp_index_p2 + 1:] + [p1[-1]]
 
         valid_child = [child[0]]
-        for i in range(1, len(child)):
-            if self._hga_graph.has_edge(valid_child[-1], child[i]):
-                valid_child.append(child[i])
-        
+        max_iterations = 100 
+        while valid_child[-1] != child[-1] and max_iterations>0:
+            for i in range(1, len(child)-1):
+                if self._hga_graph.has_edge(valid_child[-1], child[i]):
+                    valid_child.append(child[i])
+                if not self._hga_graph.has_edge(valid_child[-1], child[i+1]):
+                    max_iterations = 0
+            max_iterations -= 1 
         return valid_child
     
     def mutate(self, individual):
-        # print("Mutation processing...")
         #Randomly alters a path to introduce variability and explore unseen areas of the search space. 
         if np.random.rand() < self._mutation_rate:
-            # print(f"Lentgth of individual {len(individual)}")
-            if len(individual) <= 1: 
+            if len(individual) <= 2: 
                 return individual
-            swap_index1 = np.random.randint(1, len(individual))# - 1)
-            swap_index2 = np.random.randint(1, len(individual))# - 1)
+            swap_index1 = np.random.randint(1, len(individual) - 1)
+            swap_index2 = np.random.randint(1, len(individual) - 1)
         
             individual[swap_index1], individual[swap_index2] = individual[swap_index2], individual[swap_index1]
             individual = [node for node in individual if node in self._hga_graph.nodes]
         return individual
     
     def is_non_dominated(self,candidate, pareto_front):
+        #For Pareto
         candidate_attr = self.get_attributes(candidate)
         for member in pareto_front: 
             member_data = self.get_attributes(member)
@@ -346,6 +393,7 @@ class HybridGA():
         return True
 
     def dominates(self,member , candidate):
+        #For pareto
         better_in_one = False 
         for objective in ['time', 'ease_of_driving', 'weights']: 
             if member[objective] > candidate[objective]:
@@ -363,17 +411,6 @@ class HybridGA():
                 new_pareto_front = [solution for solution in new_pareto_front if not self.dominates(child, solution)]
                 new_pareto_front.append(child)
         return new_pareto_front
-        
-        
-        
-        # combined_front = pareto + offspring
-
-        # #Identify non-dominated solutions using Pareto dominance 
-        # non_dominated_front = [] 
-        # for sol in combined_front:
-        #     if all(self.calculate_fitness(sol) >= self.calculate_fitness(sol2) for sol2 in combined_front):
-        #         non_dominated_front.append(sol)
-        # return non_dominated_front
 
     def get_attributes(self,path):
         travel_time = 0
@@ -386,12 +423,11 @@ class HybridGA():
                 ease_of_driving += edge_data['ease_of_driving']
                 weights += edge_data['weights']
             else: 
-                travel_time +=1000
-                ease_of_driving += 60
+                travel_time += 200
+                ease_of_driving += 500
                 weights += 50
+
         return {'time':travel_time, 'ease_of_driving':ease_of_driving, 'weights':weights}
-
-
 
     def is_valid_path(self,path):
         for i in range(len(path)-1):
@@ -401,127 +437,119 @@ class HybridGA():
                 return False
         return True
     
+    def find_best_path(self, final_population):
+        # Assuming fitness_values is a list of fitness scores corresponding to each path in population
+        # and that a higher fitness score is better.
+        index_of_best = 0
+        best_paths = {}
+
+        for generation in final_population:
+            # keys = list(final_population[generation])
+            values = list(final_population[generation])
+            index_of_best = values.index(min(values))
+            best_paths[generation] = values[index_of_best]
+
+        best_fitness = list(best_paths.values())
+        index_of_best = best_fitness.index(min(best_fitness))
+        best_path = list(best_paths.keys())[index_of_best]
+
+        return best_path
+
+    def check_duplicate_paths(self, offsprings):
+        unique_paths_set = set(tuple(path) for path in offsprings)
+        unique_paths = [list(path) for path in unique_paths_set]  
+        return unique_paths  
+
     def Pareto_GA(self, replacement_rate):
     
         for node in ((self._hga_graph.nodes)):
             self._hga_graph.nodes[node]['order'] = 0
             if node == self._start:
                 self._hga_graph.nodes[node]['order'] = -1000
+
         maximul_path_len = len(self._hga_graph.nodes)
         minimum_path_len = 2
-        #Nodes are fine
         nodes = list(self._hga_graph.nodes()) 
-        
-        #Population is fine
-        population = self.initialize_population(self._population, nodes,minimum_path_len,maximul_path_len)
 
-        # Create the initial Pareto front with the first solution
-        pareto_front = [population[0]]
+        #Initialization
+        population = self.initialize_population(self._population_size, nodes,minimum_path_len,maximul_path_len)
+    
+        # TODO: Create the initial Pareto front with the first solution
+        # pareto_front = [population[0]]
 
+        final_population = {}
         for generation in range(self._generations):
+            
+            #Output progress bar 
             percent = generation / self._generations * 100
             filled_length = int(percent / 2)
             bar = '=' * filled_length + '-' * (50 - filled_length)
             print(f'\r|{bar}| {percent:.1f}%', end='\r')
             time.sleep(0.1)
-            max_attempts = 10 * int(replacement_rate* self._population)
+            
+            #Upper limit to avoid infinite loop 
+            max_attempts = 10 * int(replacement_rate* self._population_size)
             attempts = 0
-            #Evaluate fitness for each individual
-             
-            fitness_value = [self.calculate_fitness(individual + [self._finish]) for individual in population]
-            # print(f"Fitness value: {fitness_value}")
+            
+            #Evaluation Step - fitness for each individual
+            fitness_values = [self.fitness_func(individual + [self._finish]) for individual in population]
 
-            selected_indices = np.argsort(fitness_value)[-int(self._population/2):]
-            # print("Selected indices: ", selected_indices)
+            #Selection Step
+            selected_indices = self.selection(fitness_values=fitness_values)            
             parents = [population[i] for i in selected_indices]
-            # print("parents: ", parents)
   
             # Create offspring using crossover and mutation
             offspring = []
-            while len(offspring) < int(replacement_rate * self._population)and attempts < max_attempts:
+            while len(offspring) < int(replacement_rate * self._population_size)and attempts < max_attempts:
+
+                #Crossover and mutation
                 index1, index2 = np.random.choice(len(parents), 2, replace=False)
                 parent1, parent2 = parents[index1], parents[index2]
                 child = self.crossover(parent1, parent2)
                 child = self.mutate(child)
-                # print("Child ::: ", child)
+
+                #Validity check for temporary path 
                 if self.is_valid_path(child):
-                    # print("Child ::: ", child)
                     offspring.append(child)
                 attempts += 1
 
-        #103,2,96,88,89,38,39,108,109,111,116
-        # Update Pareto front
-        pareto_front = self.update_pareto_front(pareto_front, offspring)
-        
-        best_route = max(pareto_front,key=lambda x:self.calculate_fitness(x + [self._finish]))
-
-        print("Best Route based on the HGA" ,best_route)
-        time.sleep(100)
-
-        # if best_route[-1] == self._finish:
-        #     return best_route
-        
-        # replacement_indices = selected_indices[:int(replacement_rate * self._population)]
-        # for i, index in enumerate(replacement_indices):
-        #     population[index] = offspring[i]
-        
-        # # Select the best route from the final Pareto front
-        # best_route = max(pareto_front, key=lambda x: self.calculate_fitness(x+ [self._finish] ))
-        # return best_route
-
-    def GA(self):
-        nodes = list(self._hga_graph.nodes())
-        population = self.initialize_population(nodes)
-
-        for generation in range(self._generations):
-
-            fitness_value = [self.calculate_fitness(individual + [self._finish])for individual in population]
-            selected_indices = np.argsort(fitness_value)[-int(self._population/2):]
-            parents = [population[i] for i in selected_indices]
+            #Duplication deletion 
+            offspring = self.check_duplicate_paths(offspring)
+            # final_population.append(offspring)
             
-            offspring = []
-            while len(offspring) < self._population - len(parents):
-                ind1,ind2 = np.random.choice(len(parents),2,replace=False)
-                p1,p2 = parents[ind1],parents[ind2]
-                child = self.crossover(p1,p2)
-                child = self.mutate(child)
-                offspring.append(child)
-
-            population = parents+offspring
+            for path in offspring:
+                # print(f"Path {path}")
+                final_population[tuple(path)] = self.fitness_func(path)
+            final_population = dict(sorted(final_population.items(), key=lambda item: item[1]))
+            # TODO: Maybe fix the pareto evaluation
+            # pareto_front = self.update_pareto_front(pareto_front, offspring)
         
-        best_route = max(population, key=lambda x: self.calculate_fitness(x+[self._finish]))
-        return best_route + [self._finish]
+        #Final processing for best path 
+        # best_route = self.find_best_path(final_population)
+        # if not self.is_valid_path(best_route):
+        #     print("Path generated by the HGA is not valid!\nReturning empty route.")
+        #     return []
+        # else:
+        #     print("Path generated by the HGA is valid!\nReturning the best route.")
+        #     print(best_route)
+ 
+        #Return the best routes 
+        best_routes = [] 
+        for path in final_population:
+            path = list(path)
+            duplicates = set(path)
+            if path[-1] == self._finish[0]:
+                if len(path) == len(duplicates):
+                    if not self.is_valid_path(path):
+                        # print("Path generated by the HGA is not valid!\nReturning empty route.")
+                        continue
+                    else:
+                        # print("Path generated by the HGA is valid!\nReturning the best route.")
+                        best_routes.append(path)
+        print(best_routes)
+        # TODO: Select the best route from the final Pareto front
+        # best_route = max(pareto_front, key=lambda x: self.calculate_fitness(x+ [self._finish] ))
+       
+        return best_routes
+
     
-# G = nx.DiGraph()
-# G.add_edges_from([(1, 2, {'time': 10, 'ease_of_driving': 8}),
-#                   (2, 3, {'time': 15, 'ease_of_driving': 7}),
-#                   (3, 4, {'time': 20, 'ease_of_driving': 6}),
-#                   (4, 1, {'time': 5, 'ease_of_driving': 9}),
-#                   (2, 4, {'time': 25, 'ease_of_driving': 5})])
-
-
-# start = 3
-# finish = 1 
-
-# for node in ((G.nodes)):
-#     G.nodes[node]['order'] = 0
-#     if node == start:
-#         G.nodes[node]['order'] = -1000
-   
-# ga = HybridGA(start, finish, G, population_size=50, generations=100, mutation_rate=0.2)
-# best_route = ga.steady_state_GA(replacement_rate=0.2)
-# sorted_best_route = sorted(best_route, key=lambda x:G.nodes[x]['order'])
-# if sorted_best_route[0]!= start and sorted_best_route[-1]!= finish:
-#     print("Error: Start or finish node is not in the best route")
-# elif sorted_best_route[0] == start :
-#     sorted_best_route = [(sorted_best_route[i],sorted_best_route[i+1]) for i in range(len(sorted_best_route)-1) if sorted_best_route[i] != finish]
-#     print(sorted_best_route)
-#     print([(sorted_best_route[i],sorted_best_route[i+1]) for i in range(len(sorted_best_route)-1)])
-#     total_time = 0 
-#     ease_of = 0
-#     for u in sorted_best_route:
-#         total_time += G[u[0]][u[1]]['time']
-#         ease_of += G[u[0]][u[1]]['ease_of_driving']
-#     print("Best Route:", sorted_best_route)
-#     print("Total Time:", total_time)
-#     print("Total Ease of Driving:",ease_of)

@@ -11,8 +11,8 @@ import warnings
 import math
 import carla 
 import time 
-# import random
-#Κλάση το ενεργειακό μοντέλο
+
+
 
 class RoutePhase():
     def __init__(self): 
@@ -32,7 +32,6 @@ class RoutePhase():
         self._v_end_prev = 0.0 
         self._stop_time = 0.0 
 
-
 class EnergyModelEstimation():
     def __init__(self, vehicle=None, vehicle_coeffs=None, possible_routes=None, wmap=None,origin=None,road_ids=None, verbose=None):
         
@@ -49,11 +48,10 @@ class EnergyModelEstimation():
         self._P_aux =self._vehicle_coefs._Paux
         self._nd = self._vehicle_coefs._nd
         self._n_aux = self._vehicle_coefs._n_aux
-
         
         self._vehicle = vehicle
         self._wmap = wmap 
-        self._verbose = True
+        self._verbose = verbose
         self._world = self._vehicle.get_world()
         self._physical_controls = self._vehicle.get_physics_control()
         self._mass = self._physical_controls.mass
@@ -106,7 +104,6 @@ class EnergyModelEstimation():
         for elem in current_plan:
             self._waypoint_queue.append(elem)
         
-
     def _average_acceleration(self, v_initial=0, v_final=27.78, time_travel=5.7, dist_travel = 0):
             
         if time_travel is None and dist_travel!=0:
@@ -140,9 +137,7 @@ class EnergyModelEstimation():
 
         force_wheels = (self._A_coef*np.cos(avg_slope)) + (self._B_coef*phase_avg_end_speed) + (self._C_coef*(phase_avg_end_speed**2))\
                       +(self._mass*self._d_coef*phase_acc) + (self._mass*self._g_coef*np.sin(avg_slope))
-        print(f"Force in Newtons {force_wheels}")
         Pwh = (force_wheels*phase_avg_end_speed_ms)
-        print(f"Power in J/s or Watts {Pwh}")
         Pbat = 0 
 
         if Pwh > 0:
@@ -154,14 +149,17 @@ class EnergyModelEstimation():
         else: 
             Pbat = (self._P_aux/self._naux_idle)
 
-        print(f"Power in Watts {Pbat}")
         energy = (Pbat*phase_time)/3600
 
+        if self._verbose:
+            print(f"Force in Newtons {force_wheels}")
+            print(f"Power in J/s or Watts {Pwh}")
+            print(f"Power in Watts {Pbat}")
+            print(f"Energy is {energy}")
+
         # energy = ((Pwh*phase_time)/(self._nd) + (self._P_aux*phase_time)/(self._n_aux))/3600
-        print(f"Energy is {energy}")
         return energy
 
-    #Εύκολος τρόπος για να πάρουμε τα ids για τους δρόμους των σημείων
     def waypoints_roads(self):
         waypoints = self._wmap.get_topology()
         if waypoints:
@@ -176,7 +174,6 @@ class EnergyModelEstimation():
         
         return wp_road_ids
         
-
     def loop_route(self):
         
         if not self._links:
@@ -187,7 +184,6 @@ class EnergyModelEstimation():
         ind = True
         flinks = []
         fnal = self._links[-1][-1]
-        print(len(self._links))
         for link in range(len(self._links)-2):
             link1 = self._links[link]
             if not link1[0] or not link1[-1]:
@@ -240,7 +236,7 @@ class EnergyModelEstimation():
                 x1, y1 = flinks[link][0].transform.location.x, flinks[link][0].transform.location.y    
                 x2, y2 = flinks[link][1].transform.location.x, flinks[link][1].transform.location.y 
                 plt.plot([-x1,-x2], [y1,y2], marker = 'o')
-            plt.title("This is inside the loop function")
+            plt.title("Map formed inside the loop_route function")
             plt.show()
             
         self._links = [(x,y) for x,y in self._links if y is not None and x is not None]
@@ -248,14 +244,12 @@ class EnergyModelEstimation():
 
         return flinks
     
-
     def condition(self, link):
         p1 = link[0].transform.location
         p2 = link[-1].transform.location
         if p1.distance(p2) == 0 or p1.distance(p2)<0.1: 
             return False
         return True
-
 
     def link_creation(self):
 
@@ -268,10 +262,6 @@ class EnergyModelEstimation():
                 wp_road_ids[road_id]=[]
             wp_road_ids[road_id].append(wp)
 
-        #Get the first and last elements in every road_id.
-        #Some road_ids only have one element
-            
-        #also try the douglas peucker way 
         formatted_wp_roads = {}
         for key in wp_road_ids.keys():
 
@@ -279,16 +269,9 @@ class EnergyModelEstimation():
             if length == 1: 
                 points = [wp_road_ids[key][0]]
             else:
-                # include_points = random.sample(range(1, length-1), int(np.ceil(length/2)))
-                # include_points = list(self._rng.integers(low=1, high=length-1, size= int(np.ceil(length/2))))
-                # include_points.append(0)
-                # include_points.append(length-1)
-                # include_points = sorted(include_points)
-                # points = [wp_road_ids[key][ii] for ii in include_points]
                 points = wp_road_ids[key]
 
             formatted_wp_roads[key] = self._douglas_pucker(points, epsilon_curved=25, epsilon_straight=5)
-
 
         for key in formatted_wp_roads.keys():
             for ii in range(len(formatted_wp_roads[key])-1):
@@ -296,23 +279,18 @@ class EnergyModelEstimation():
                 wayp2 = formatted_wp_roads[key][ii+1]
                 self._links.append((wayp1,wayp2))
 
-        #Create the list of waypoints only.
-        # for key in wp_road_ids.keys(): 
-        #     middle_pack = int(len(wp_road_ids[key])/2)
-        #     self._links.append((wp_road_ids[key][0], wp_road_ids[key][middle_pack], wp_road_ids[key][-1]))
-        
-        if self._verbose == True:
-            for link in self._links: 
-                x1, y1 = link[0].transform.location.x, link[0].transform.location.y    
-                x2, y2 = link[1].transform.location.x, link[1].transform.location.y 
-                # x3, y3 = link[2].transform.location.x, link[2].transform.location.y 
-                plt.plot([-x1,-x2], [y1,y2], marker = 'o')
-            plt.title("This is the one straingth after the appendind")
-            plt.show()
+        # if self._verbose == True:
+        #     for link in self._links: 
+        #         x1, y1 = link[0].transform.location.x, link[0].transform.location.y    
+        #         x2, y2 = link[1].transform.location.x, link[1].transform.location.y 
+        #         # x3, y3 = link[2].transform.location.x, link[2].transform.location.y 
+        #         plt.plot([-x1,-x2], [y1,y2], marker = 'o')
+        #     plt.title("This is the one straingth after the appendind")
+        #     plt.show()
 
 
-        links = []
         #Find and create a path with all the points
+        links = []
         for link in range(len(self._links)-1):
             if (link==0):
                 links.append((self._links[0][0],self._links[0][-1]))
@@ -327,12 +305,13 @@ class EnergyModelEstimation():
             p2 = self._links[link][-1] #the final point of the tuple 
             p3 = self._links[link+1][0] # the first point of the next link 
             links.append((p2,p3))
+
         if self._verbose==True:
             for link in links: 
                 x1, y1 = link[0].transform.location.x, link[0].transform.location.y    
                 x2, y2 = link[1].transform.location.x, link[1].transform.location.y 
                 plt.plot([-x1,-x2], [y1,y2], marker = 'o')
-            plt.title("This is the one straingth after Seperattions of links")
+            plt.title("Graph topology after separation and link creation.")
             plt.show()
 
         #print the elements in the route in a diagram for clarity. 
@@ -345,37 +324,29 @@ class EnergyModelEstimation():
         return self.loop_route()
         
     def calculate_incline_angle(self, cur_location, next_location):
+
         dot_product = np.dot(cur_location, next_location)
         magnitude1 = np.linalg.norm(cur_location)
         magnitude2 = np.linalg.norm(next_location)       
         cosine_angle = dot_product / (magnitude1 * magnitude2)
         angle_rad = np.arccos(cosine_angle)
         angle_degree =  np.degrees(angle_rad)
-        # incline_angle_rad = np.arccos(cosine_angle)
-        # incline_angle_degree = np.degrees(incline_angle_rad)
         return angle_degree
 
     def avg_calculate_incline_angle(self, start_point, end_point):
-        # Διαφορά υψομέτρου
-        delta_z = end_point[2] - start_point[2]
-        # Οριζόντια απόσταση
-        horizontal_distance = np.sqrt((end_point[0] - start_point[0])**2 + (end_point[1] - start_point[1])**2)
-        print(f"Delta _ z == {delta_z}")
-        print(f"Horizontal distance == {horizontal_distance}")
 
-        # Γωνία κλίσης (σε μοίρες)
+        delta_z = end_point[2] - start_point[2]
+        horizontal_distance = np.sqrt((end_point[0] - start_point[0])**2 + (end_point[1] - start_point[1])**2)
         angle_radians = np.arctan2(delta_z, horizontal_distance)
-        print(f"angle_radians == {angle_radians}")
         angle_degrees = np.degrees(angle_radians)
         return angle_degrees
     
     def calculate_average_slope(self, start_point, end_point):
-        # Διαφορά στις συντεταγμένες x, y, και z
+
         delta_x = end_point[0] - start_point[0]
         delta_y = end_point[1] - start_point[1]
         delta_z = end_point[2] - start_point[2]
         
-        # Οριζόντια απόσταση στο επίπεδο x-y
         horizontal_distance = np.sqrt(delta_x**2 + delta_y**2)
         
         # Υπολογισμός της κλίσης
@@ -384,7 +355,6 @@ class EnergyModelEstimation():
         slope_degrees = np.degrees(slope_radians)
         return slope_degrees
 
-
     def point_line_distance_3d(self, point, line_start, line_end):
         AP = np.array(point) - np.array(line_start)
         AB = np.array(line_end) - np.array(line_start)
@@ -392,7 +362,6 @@ class EnergyModelEstimation():
         distance = np.linalg.norm(cross_product)/np.linalg.norm(AB)
         return distance 
     
-
     def calculate_curvature(self, waypoints):
         p1 = waypoints[0].transform.location
         x1,y1,z1 =  p1.x, p1.y, p1.z 
@@ -416,7 +385,6 @@ class EnergyModelEstimation():
         angle = np.arccos(cos_theta)
 
         return angle    
-
 
     def key_points_of_curvature(self, points, curvature_thr):
         segment_classification = ['straight'] * (len(points)-1)
@@ -447,8 +415,8 @@ class EnergyModelEstimation():
                     index = ii
                     dmax = d 
             if dmax > epsilon: 
-                rec_result1 = self._douglas_pucker(points[:index+1], epsilon)
-                rec_result2 = self._douglas_pucker(points[index:], epsilon)
+                rec_result1 = self._douglas_pucker(points[:index+1], epsilon_curved,epsilon_straight)
+                rec_result2 = self._douglas_pucker(points[index:], epsilon_curved,epsilon_straight)
                 return rec_result1[:-1] + rec_result2
             else:     
                 return [points[0], points[-1]]
@@ -465,168 +433,6 @@ class EnergyModelEstimation():
         results.append(points[-1])
         return results 
                 
-
-        # key_points = self.key_points_of_curvature(points ,np.pi/18)
-        
-        # for ii in range(1, len(points)-1):
-        #     if points[ii] in key_points:
-        #         continue
-        #     current_point = points[ii].transform.location.x, points[ii].transform.location.y,points[ii].transform.location.z,
-            
-        #     d = self.point_line_distance_3d(current_point,start_point,end_point)
-        #     if d > dmax: 
-        #         index = ii
-        #         dmax = d 
-        #     print(f'Distance {d}')
-        # if dmax > epsilon: 
-        #     rec_result1 = self._douglas_pucker(points[:index+1], epsilon)
-        #     rec_result2 = self._douglas_pucker(points[index:], epsilon)
-
-        #     results = rec_result1[:-1] + rec_result2
-        # else:
-        #     results = [start_point] + [[p.transform.location.x,p.transform.location.y,p.transform.location.z] for p in key_points if p in points[1:-1]] + [end_point]        
-        # return results 
-    
-    def prepare_phases(self,links):
-        self._phases_route = {}
-        for wps in range(len(links)-1):
-            link_phases = RoutePhase() 
-            if (len(links))<2:
-                link_phases._phase4 = True 
-                break
-
-            if (wps==1):
-                link_phases._v_end = 0
-                link_phases._v_end_prev = 0
-                link_phases._v_max = 0
-                link_phases._v_max_next = 0
-
-            waypoint = links[wps][0]
-            next_waypoint = links[wps][-1]
-            next_link_wp = links[wps+1][-1]
-            current_loc = waypoint.transform.location
-            next_location = next_waypoint.transform.location
-
-            #Get the speed limit of the link. 
-            if not self._speed_lms:
-                link_phases._speed_lim = 30
-            elif next_waypoint.road_id not in self._speed_lms: 
-                link_phases._speed_lim = 30
-            elif next_waypoint.road_id in self._speed_lms:  
-                link_phases._speed_lim = self._speed_lms[next_waypoint.road_id]
-            else: 
-                link_phases._speed_lim = 30
-                # link_phases._speed_lim = 30*0.277778
-
-            #Get the highway label if that is the case.
-            if next_waypoint.road_id != waypoint.road_id:
-                if self._highway_lms.get(next_waypoint.road_id):
-                    link_phases._highway = True 
-
-            #Get the distance of the link. 
-            link_phases._distance_link = current_loc.distance(next_location)
-            print(f"link_phases distance = {link_phases.distance}")
-            #Get the maximum velocity for this link and the next one. 
-            if next_waypoint.road_id == waypoint.road_id:
-                link_phases._v_max = self._speed_lms.get(waypoint.road_id)
-                if next_waypoint.road_id == next_link_wp.road_id:
-                    link_phases._v_max_next = link_phases._v_max
-                else:
-                    link_phases._v_max_next  = self._speed_lms.get(next_link_wp.road_id)
-            else: 
-                link_phases._v_max = self._speed_lms.get(next_waypoint.road_id) 
-                if next_waypoint.road_id == next_link_wp.road_id: 
-                    link_phases._v_max_next = link_phases._v_max 
-                else: 
-                    link_phases._v_max_next = self._speed_lms.get(next_link_wp.road_id)        
-
-            #If no speed limit was set, default the 30km/h speed limit.
-            if not link_phases._v_max:
-                    link_phases._v_max = 30 
-            if not link_phases._v_max_next:
-                    link_phases._v_max_next = 30
-
-            #Get the traffic light status.
-            if next_waypoint.road_id in list(self._traffic_lights.keys()):
-                tl_location = self._traffic_lights[next_waypoint.road_id].transform.location
-                if next_location.distance(tl_location) < 100:
-                    link_phases._traffic_light = True
-                    del self._traffic_lights[next_waypoint.road_id]
-                    print(f"Link {wps} has a traffic light with {next_location.distance(tl_location)} distance from the vehicle.")
-            #Get the stop sign status 
-            elif next_waypoint.road_id in list(self._stop_lms.keys()):
-                link_phases._stop = True
-                del self._stop_lms[next_waypoint.road_id]
-                print(f"Link {wps} has a stop sign.")
-            #Get the end of the link.
-            elif wps + 1 == len(links)-1:
-                link_phases._stop = True 
-
-            if link_phases._traffic_light or link_phases._stop:
-                link_phases._v_end=0 
-            else: 
-                if link_phases._v_max_next >= link_phases._v_max :
-                    link_phases._v_end = link_phases._v_max  
-                else: 
-                    link_phases._v_end = link_phases._v_max_next
-
-            link_phases._v_start = link_phases._v_end_prev
-            link_phases._v_end_prev = link_phases._v_end
-
-            print(f"Start {link_phases._v_start}| Max {link_phases._v_max} | End {link_phases._v_end}")
-            print(f"Link's Distance {link_phases._distance_link} | Minimum distance {self._min_dist}")
-            if link_phases._distance_link < self._min_dist:
-                temp = self.time_travel.get((link_phases._v_start,link_phases._v_max))
-                print(f"Start {link_phases._v_start}| Max {link_phases._v_max} | End {link_phases._v_end}")
-                a_1 = self._average_acceleration(link_phases._v_start,link_phases._v_max,temp,dist_travel=0) #a_1(k) = mean(a_pos_tbl(v_start(k):v_max(k)))
-                ds_1 = (link_phases._v_max**2 - link_phases._v_start**2)/(2*a_1)  
-                
-                time__time = (2*link_phases._distance_link) / ((link_phases._v_max + link_phases._v_start))
-                a_link = (link_phases._v_max-link_phases._v_start)/time__time
-
-                print(f"Acceleration of the link is {a_link}")
-
-
-                if ds_1 >= link_phases._distance_link: 
-                    acc_1= self._average_acceleration(link_phases._v_start,link_phases._v_max,None,link_phases._distance_link/2)
-                    ds_1 = link_phases._distance_link/2
-                    temp = self.time_travel.get((link_phases._v_max,link_phases._v_end))
-                    a_3 = self._average_acceleration(link_phases._v_max,link_phases._v_end,temp,dist_travel=0)
-                    ds_3 = (link_phases._v_max**2 - link_phases._v_end**2)/(2*a_3)  #ds_3(k) = (v_max(k)^2 - v_end(k)^2)/(2*a_3(k))
-
-                    if link_phases._v_end == 0 : #There is a stop 
-                        temp = self.time_travel.get((link_phases._v_max,link_phases._v_end))
-                        a_3 = self._average_acceleration(link_phases._v_max,link_phases._v_end,temp,dist_travel=0)
-                        ds_3 = (link_phases._v_max**2 - link_phases._v_end**2)/(2*a_3)  #ds_3(k) = (v_max(k)^2 - v_end(k)^2)/(2*a_3(k))
-
-                        if ds_3 + ds_1 >= link_phases._distance_link:
-                            #Βρες την μεγιστη επιταχυνση για την μισή διαδρομή και κάνε μόνο 1 + 3 φάσεις 
-                            link_phases._phase1 = True
-                            link_phases._phase2 = False
-                            link_phases._phase3 = True
-                            link_phases._phase4 = True
-                        else:
-                            link_phases._phase1 = True
-                            link_phases._phase2 = True
-                            link_phases._phase3 = True
-                            link_phases._phase4 = True 
-                    else:   
-                        link_phases._phase1 = True 
-                        link_phases._phase2 = False
-                        
-                        link_phases._phase3 = True 
-                        link_phases._phase4 = False
-                        continue
-                else:
-                    if link_phases._v_end == 0 :
-                        link_phases.phase1 = True 
-                        link_phases._phase2 = False
-                        link_phases._phase3 = True 
-                        link_phases._phase4 = False
-                    
-                time.sleep(60)
-
-
     def find_max_velocity(self, distance): 
         max_velocity = 0 
         best_acceleration = None 
@@ -634,6 +440,7 @@ class EnergyModelEstimation():
             v_initial_ms = v_initial_km*0.27778
             v_final_ms = v_final_km*0.27778 
             acceleration = self._average_acceleration(v_initial=v_initial_ms, v_final=v_final_ms, time_travel=time, dist_travel=0)
+            
             #Calculate the distance neede to reach v_final from v_initial 
             distance_needed = v_initial_ms * time + 0.5 * acceleration * (time ** 2)
             if distance_needed <= distance and v_final_ms>max_velocity: 
@@ -641,8 +448,6 @@ class EnergyModelEstimation():
                 best_acceleration = acceleration
         return max_velocity, best_acceleration
 
-
-    #Υπολογισμός ενέργειας
     def energy_estimation(self):
 
         phases = {"accelerate":0, "steadyspeed":1, "decelerate":2, "stopstill":3}
@@ -655,9 +460,8 @@ class EnergyModelEstimation():
         phase_energy = []
         total_distance = 0
         total_travel_time = 0
-        number_stops = 0
         traffic_stop_same_road = False  
-        #wp_road_ids = self.waypoints_roads()
+
         if not self._speed_lms: 
             print("No speed limit sign found. Due to urban environment the speed limit is set to 30 km/h")
             speed_flag = True
@@ -665,6 +469,7 @@ class EnergyModelEstimation():
             speed_flag = False
 
         while len(self._possible_routes) != 0:
+            number_stops = 0
 
             route = self._possible_routes[0]
 
@@ -673,18 +478,13 @@ class EnergyModelEstimation():
                     x1, y1 = route[link][0].transform.location.x, route[link][0].transform.location.y    
                     x2, y2 = route[link+1][0].transform.location.x, route[link+1][0].transform.location.y 
                     plt.plot([-x1,-x2], [y1,y2], marker = 'o')
-                plt.title("Original Path as generated by the PFA")
+                plt.title("Original graph topology generated by the pfa selection")
                 plt.show()
 
             self._remake_queue(route)
             self._min_acc = self._average_acceleration(0,30,self.time_travel[(0,30)],dist_travel=0)
             self._min_dist = (1/2)*(30*0.27778) * self.time_travel[(0,30)] #distance travelled to reach 30km/h
             links = self.link_creation()
-            # self.prepare_phases(links)
-
-            print(f"Min Acceleration {self._min_acc}")
-            print(f"Min Distance {self._min_dist}")
-            print(f"Number of links(roads) {len(links)}")
 
             #Τελική αποτύπωση της διαδρομής μετά τον υπολογισμό και την μείωση των ακμών.
             if self._verbose==True: 
@@ -705,9 +505,9 @@ class EnergyModelEstimation():
             v_max_current_km = 0
             v_max_next_km = 0
             v_end_current_ms = 0 
-            v_end_prev_ms = 0
+            # v_end_prev_ms = 0
             v_max_current_ms = 0
-            v_max_next_ms = 0
+            # v_max_next_ms = 0
             init_velocity_km = 0
             init_velocity_ms = 0
 
@@ -726,29 +526,23 @@ class EnergyModelEstimation():
                     self._speed_lms[next_waypoint.road_id] = 30
                     self._speed_lms[next_link_wp.road_id] = 30
 
-                print(f"Speed Flag {speed_flag}")
-
                 if not waypoint or not next_waypoint:
                     warnings.warn(F"At current iteration {wps} no waypoint was found. \nCheck the Start and Finish point locations. ")
                     break
                 
                 if next_waypoint.road_id!=waypoint.road_id:
-                    # not_stop_wp = False
                     if self._highway_lms.get(next_waypoint.road_id):
                         highway = True
             
                 current_loc = waypoint.transform.location
                 next_location = next_waypoint.transform.location
                 self._vehicle.set_location(current_loc)
-                # time.sleep(2)
                 cur_loc = [current_loc.x, current_loc.y, current_loc.z]
                 next_loc = [next_location.x, next_location.y, next_location.z]
-                incline_angle = self.calculate_incline_angle(cur_loc, next_loc)
-                avg_incline = self.avg_calculate_incline_angle(cur_loc, next_loc)
+                # incline_angle = self.calculate_incline_angle(cur_loc, next_loc)
+                # avg_incline = self.avg_calculate_incline_angle(cur_loc, next_loc)
                 avg_slope = self.calculate_average_slope(cur_loc,next_loc)
                 link_dist = current_loc.distance(next_location) 
-                # (np.sqrt((next_location.y-current_loc.y)**2 + (next_location.x-current_loc.x)**2 + (next_location.z-current_loc.z)**2))
-
                 total_distance += link_dist
 
                 if next_waypoint.road_id == waypoint.road_id:
@@ -771,15 +565,14 @@ class EnergyModelEstimation():
                
                 if next_waypoint.road_id in list(self._traffic_lights.keys()):
                     tl_location = self._traffic_lights[next_waypoint.road_id].transform.location
-                    if next_location.distance(tl_location) < 50:
+                    if next_location.distance(tl_location) < 100:
                         traffic_stop = True 
                         not_stop_wp = False
                         stop_flag = False
                         del self._traffic_lights[next_waypoint.road_id] 
-                        print("Traffic light gotten from road :::: ", next_waypoint.road_id)    
                     
                 stop_link = self._stop_lms.get(next_waypoint.id)
-                if stop_link and not not_stop_wp: #and not_stop_wp==False :
+                if stop_link and not not_stop_wp: 
                     stop_flag = True
                     not_stop_wp = True
                     traffic_stop = False
@@ -801,24 +594,10 @@ class EnergyModelEstimation():
                 v_end_prev_km = v_end_current_km 
                 v_max_current_ms = v_max_current_km * 0.27778
                 v_end_current_ms = v_end_current_km * 0.27778
-                v_max_next_ms = v_max_next_km * 0.27778
+                # v_max_next_ms = v_max_next_km * 0.27778
                 init_velocity_ms = init_velocity_km * 0.27778
-                v_end_prev_ms = v_end_prev_km * 0.27778 
-               
-                # print(f"Current location {current_loc}")
-                # print(f'Incline angle {incline_angle}')
-                # print(f'Avg Incline angle {avg_incline}')
-                # print(f'Avg Slope angle {avg_slope}')
-                # print(f"Init velocity {init_velocity_km}")
-                # print(f"v_end_prev {v_end_prev_km}")
-                # print(f"v_end_current {v_end_current_km}")
-                # print(f"stop flag  {stop_flag}")
-                # print(f"Traffic stop  {traffic_stop}")
-                # print(f"Current waypoint {waypoint}")
-                # print(f"Next Waypoint {next_waypoint}")
-                # print(f"Link distance {link_dist}")
-                # print(f" Initial_speed {init_velocity_km} and Max speed of link {v_max_current_km} with end speed {v_end_current_km}")
-                
+                # v_end_prev_ms = v_end_prev_km * 0.27778 
+            
                 skip_phase1 = False
                 skip_phase2 = False
                 skip_phase3 = False 
@@ -832,34 +611,32 @@ class EnergyModelEstimation():
 
                         if skip_phase1:
 
-                            print("Phase 1 is not needed, no acceleration due to max velocity ")
                             phase_acc[0] = 0 
                             phase_dist[0] = 0 
                             phase_time[0] = 0
                             phase_speed[0] = 0
                             phase_avg_end_speed[0] = 0
                             energy = 0
-                            print(f"Energy at phase 1 when no acceleration is needed => {energy}")
                             phase_energy.append(energy)
                             skip_phase1=False
 
                         else: 
 
-                            print(f"Phase 1 in progress. Acceleration from initial velocity {init_velocity_km} to max velocity {v_max_current_km}")
+                            # print(f"Phase 1 in progress. Acceleration from initial velocity {init_velocity_km} to max velocity {v_max_current_km}")
                             
                             temp = self.time_travel.get((init_velocity_km,v_max_current_km))#\/
                             phase_acc[0] = self._average_acceleration(init_velocity_ms,v_max_current_ms,temp,dist_travel=0)#\/
                             phase_dist[0] = (v_max_current_ms**2 - init_velocity_ms**2)/(2*phase_acc[0])#\/
 
                             if phase_dist[0] >= link_dist and not (stop_flag or traffic_stop): #\/
-
                                 max_vel, best_acceleration = self.find_max_velocity(distance=link_dist)
+                                v_max_current_ms = max_vel
+                                phase_acc[0] = best_acceleration
 
-                                print(max_vel, best_acceleration, "Fuck ywahhhhhhhh")
+                                # v_max_current_km = v_max_current_km/2
+                                # v_max_current_ms = v_max_current_km * 0.27778
+                                # phase_acc[0] = self._average_acceleration(init_velocity_ms,v_max_current_ms,None,link_dist)
 
-                                v_max_current_km = v_max_current_km/2
-                                v_max_current_ms = v_max_current_km * 0.27778
-                                phase_acc[0] = self._average_acceleration(init_velocity_ms,v_max_current_ms,None,link_dist)
                                 phase_dist[0] = (v_max_current_ms**2 - init_velocity_ms**2)/(2*phase_acc[0])
                                 skip_phase2 = True 
                                 skip_phase3 = True 
@@ -867,11 +644,13 @@ class EnergyModelEstimation():
 
                             elif phase_dist[0] >= link_dist and (stop_flag or traffic_stop): #\/
                                 max_vel, best_acceleration = self.find_max_velocity(distance=link_dist/2)
+                                v_max_current_ms = max_vel
+                                phase_acc[0] = best_acceleration
 
-                                print(max_vel, best_acceleration, "Fuck ywahhhhhhhh222222222222")
-                                v_max_current_km = 10
-                                v_max_current_ms = 10 * 0.27778
-                                phase_acc[0] = self._average_acceleration(init_velocity_ms,v_max_current_ms,None,link_dist/2)
+                                # print(max_vel, best_acceleration, "Fuck ywahhhhhhhh222222222222")
+                                # v_max_current_km = 10
+                                # v_max_current_ms = 10 * 0.27778
+                                # phase_acc[0] = self._average_acceleration(init_velocity_ms,v_max_current_ms,None,link_dist/2)
                                 phase_dist[0] = (v_max_current_ms**2 - init_velocity_ms**2)/(2*phase_acc[0])
                                 skip_phase2 = True 
                                 skip_phase3 = False 
@@ -902,11 +681,10 @@ class EnergyModelEstimation():
                             v_end_current_km = 0
                             v_end_current_ms = 0 
                             temp = self.time_travel.get((v_max_current_km,v_end_current_km)) #\/
-                            print(f"{v_max_current_km} is the max and {v_end_current_km} is the end.")
                             phase_acc[2] = self._average_acceleration(v_max_current_ms,v_end_current_ms,temp,dist_travel=0)#\/
                             phase_dist[2] = np.abs((v_max_current_ms**2 - v_end_current_ms**2)/(2*phase_acc[2])) #\/
                             if phase_dist[2] + phase_dist[0]> link_dist:
-                                print(f"The distance in phase 3 {phase_dist[2]} is bigger than the link's distance {link_dist}")
+                                # print(f"The distance in phase 3 {phase_dist[2]} is bigger than the link's distance {link_dist}")
                                 phase_acc[1] = 0
                                 phase_dist[1] = 0
                                 phase_time[1] = 0
@@ -928,7 +706,7 @@ class EnergyModelEstimation():
 
                             phase_acc[2] = 0
                             phase_dist[2] = 0  
-                            print("Phase 2 == > Entered the normal execution without final stop")
+                            # print("Phase 2 == > Entered the normal execution without final stop")
                             phase_acc[1] = 0 # a_2(k)=0
                             phase_dist[1] = link_dist - phase_dist[0] - phase_dist[2] #d2_2 = link_lenght(k) - ds_1(k) - ds_3(k)
                             phase_time[1] = phase_dist[1]/v_max_current_ms # ds_2(k) / v_max(k)
@@ -958,7 +736,7 @@ class EnergyModelEstimation():
                         elif stop_flag or traffic_stop :
                             v_end_current_km = 0
                             v_end_current_ms = 0
-                            print(f"Decreasing speed as stop node was found... acceleration is {phase_acc[2]} and distance {phase_dist[2]}")
+                            # print(f"Decreasing speed as stop node was found... acceleration is {phase_acc[2]} and distance {phase_dist[2]}")
                             phase_time[2] = np.abs((v_max_current_ms-v_end_current_ms)/(2*phase_acc[2]))
                             phase_speed[2] = v_end_current_km
                             phase_avg_end_speed[2] = (0.25*v_end_current_km) +  (0.75*v_max_current_km) #vavg_3(k) = 0.25*v_end(k) + 0.75*v_max(k)
@@ -969,10 +747,10 @@ class EnergyModelEstimation():
                                                              phase_avg_end_speed=phase_avg_end_speed[2],
                                                              avg_slope=avg_slope)
                             phase_energy.append(energy)
-                            print("Phase 3 == > Entered the normal deceleration")
+                            # print("Phase 3 == > Entered the normal deceleration")
                             
                         else: 
-                            print("Phase 3 == > No deceleration needed")
+                            # print("Phase 3 == > No deceleration needed")
                             phase_time[2] = 0
                             phase_speed[2] = 0
                             phase_avg_end_speed[2] = 0
@@ -1001,7 +779,7 @@ class EnergyModelEstimation():
                             skip_phase4 = False 
 
                         elif highway:
-                            print("Phase 4 == > Highway")
+                            # print("Phase 4 == > Highway")
                             phase_acc[3] = 0
                             phase_dist[3] = 0
                             phase_time[3] = 0
@@ -1016,7 +794,7 @@ class EnergyModelEstimation():
                             phase_energy.append(energy)
 
                         elif stop_flag: 
-                            print("Phase 2 == > Stop sign stop ")
+                            # print("Phase 2 == > Stop sign stop ")
                             phase_acc[3] = 0
                             phase_dist[3] = 0 
                             phase_time[3] = self._stop_times["stop"]
@@ -1030,7 +808,7 @@ class EnergyModelEstimation():
                                                              avg_slope=avg_slope)
                             phase_energy.append(energy)
                         elif traffic_stop:
-                            print("Phase 4 == > Traffic light Stop ")
+                            # print("Phase 4 == > Traffic light Stop ")
                             phase_acc[3] = 0
                             phase_dist[3] = 0
                             phase_time[3] = self._stop_times["traffic_light"]
@@ -1044,7 +822,7 @@ class EnergyModelEstimation():
                                                              avg_slope=avg_slope)
                             phase_energy.append(energy) 
                         else:
-                            print("Phase 4 == > No stopping")
+                            # print("Phase 4 == > No stopping")
                             phase_acc[3] = 0
                             phase_dist[3] = 0
                             phase_time[3] = 0
@@ -1061,22 +839,10 @@ class EnergyModelEstimation():
                         traffic_stop = False
                         stop_flag = False 
                         not_stop_wp = True 
-                        print(f'Phase 1 {phase_energy[0]}')
-                        print(f'Phase 2 {phase_energy[1]}')
-                        print(f'Phase 3 {phase_energy[2]}')
-                        print(f'Phase 4 {phase_energy[3]}')
                         highway = False 
                         tmp = phase_energy[0] + phase_energy[1] + phase_energy[2] + phase_energy[3] 
                         total_travel_time = total_travel_time + (phase_time[0] + phase_time[1] + phase_time[2] + phase_time[3])
                         self.total_energy_link.append(tmp)
-
-                        print(f"Energy of link {tmp}")
-                        print(f'Phase 1 {phase_energy[0]}')
-                        print(f'Phase 2 {phase_energy[1]}')
-                        print(f'Phase 3 {phase_energy[2]}')
-                        print(f'Phase 4 {phase_energy[3]}')
-                        print(f"Energy up until now {self.total_energy_link}")
-                        time.sleep(3)
 
                         #phase_acc.clear()
                         #phase_dist.clear()

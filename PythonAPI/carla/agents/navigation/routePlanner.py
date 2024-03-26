@@ -14,7 +14,7 @@ import numpy as np
 import networkx as nx
 import copy
 from statistics import mean
-
+import time
 import carla
 from agents.navigation.local_planner import RoadOption
 from agents.navigation.energy_estimation import EnergyModelEstimation
@@ -25,7 +25,7 @@ from agents.tools.misc import vector
 
 
 class RoutePlanner(object): 
-    def __init__(self,wmap,sampling_resolution): 
+    def __init__(self,wmap,sampling_resolution, vehicle, vehicle_coefficients, verbose, pfa): 
         self._sampling_resolution = sampling_resolution
         self._wmap = wmap
         self._topology = None
@@ -38,6 +38,11 @@ class RoutePlanner(object):
         self._vehicle = None
         self._vehicle_coeffs = []
         self._energy_cost = []
+        self._vehicle = vehicle
+        self._vehicle_coeffs = vehicle_coefficients
+        self._verbose = verbose 
+        self._pfa = pfa 
+        self._hga_graph = None
 
         # Build the graph
         self._build_topology()
@@ -45,65 +50,121 @@ class RoutePlanner(object):
         self._find_loose_ends()
         self._lane_change_link()
 
-    def trace_route(self,origin,destination,vehicle,vehicle_coefficients,verbose): 
+    def trace_route(self,origin,destination): 
         """
         This method returns list of (carla.Waypoint, RoadOption)
         from origin to destination
         """
-        self._vehicle = vehicle
-        self._vehicle_coeffs = vehicle_coefficients
-        self._verbose = verbose 
         route_trace = []
         best_route = []
         best_paths = []
-        npaths = 5 
         self.copy_graph = nx.DiGraph(self._graph)
         current_waypoint = self._wmap.get_waypoint(origin)
         destination_waypoint = self._wmap.get_waypoint(destination)
-        for _ in range(npaths):
+        npaths = 5 
+        execution_time = 0.0
+        start_time = time.time()
+        if self._pfa == 'A*' or self._pfa == 'a*' or self._pfa == 'a8':
+            
+            for _ in range(npaths):
+            
+                route = self._path_search(origin, destination) #Returns a list of nodes for the best possible path based on copy graph. 
+
+                if not route: 
+                    print("Not another path available")
+                    break
+                else: 
+                    print(f"The path to follow {route}")
+                
+                self.copy_graph.remove_edges_from(zip(route,route[1:]))
+                route_trace.clear()
+
+                for i in range(len(route) - 1): 
+
+                    road_option = self._turn_decision(i, route)
+                    edge = self._graph.edges[route[i], route[i+1]]
+                    path = []
+
+                    if edge['type'] != RoadOption.LANEFOLLOW and edge['type'] != RoadOption.VOID:
+                        route_trace.append((current_waypoint, road_option))
+                        exit_wp = edge['exit_waypoint']
+                        n1, n2 = self._road_id_to_edge[exit_wp.road_id][exit_wp.section_id][exit_wp.lane_id]
+                        next_edge = self._graph.edges[n1, n2]
+                        if next_edge['path']:
+                            closest_index = self._find_closest_in_list(current_waypoint, next_edge['path'])
+                            closest_index = min(len(next_edge['path'])-1, closest_index+5)
+                            current_waypoint = next_edge['path'][closest_index]
+                        else:
+                            current_waypoint = next_edge['exit_waypoint']
+                        route_trace.append((current_waypoint, road_option))
+
+                    else:
+                        path = path + [edge['entry_waypoint']] + edge['path'] + [edge['exit_waypoint']]
+                        closest_index = self._find_closest_in_list(current_waypoint, path)
+                        for waypoint in path[closest_index:]:
+                            
+                            current_waypoint = waypoint
+                            route_trace.append((current_waypoint, road_option))
+                            
+                            if len(route)-i <= 2 and waypoint.transform.location.distance(destination) < 2*self._sampling_resolution:
+                                break
+                                
+                            elif len(route)-i <= 2 and current_waypoint.road_id == destination_waypoint.road_id and current_waypoint.section_id == destination_waypoint.section_id and current_waypoint.lane_id == destination_waypoint.lane_id:
+                                destination_index = self._find_closest_in_list(destination_waypoint, path)
+                                if closest_index > destination_index:
+                                    break
+                                     
+                best_paths.append(route_trace)
+
+        elif self._pfa == 'HGA' or self._pfa == 'hga':
             
             route = self._path_search(origin, destination) #Returns a list of nodes for the best possible path based on copy graph. 
-            
-            if not route: 
-               print("Not another path available")
-               break
-            else: 
-                print(f"The path to follow {route}")
-            self.copy_graph.remove_edges_from(zip(route,route[1:]))
-            route_trace.clear()
+            counter = 0
+            for choice in route:
+                route_trace = []
 
-            for i in range(len(route) - 1):
-                road_option = self._turn_decision(i, route)
-                edge = self._graph.edges[route[i], route[i+1]]
-                path = []
+                if counter >= npaths: 
+                    break
+                choice = [int(x) for x in choice]
 
-                if edge['type'] != RoadOption.LANEFOLLOW and edge['type'] != RoadOption.VOID:
-                    route_trace.append((current_waypoint, road_option))
-                    exit_wp = edge['exit_waypoint']
-                    n1, n2 = self._road_id_to_edge[exit_wp.road_id][exit_wp.section_id][exit_wp.lane_id]
-                    next_edge = self._graph.edges[n1, n2]
-                    if next_edge['path']:
-                        closest_index = self._find_closest_in_list(current_waypoint, next_edge['path'])
-                        closest_index = min(len(next_edge['path'])-1, closest_index+5)
-                        current_waypoint = next_edge['path'][closest_index]
-                    else:
-                        current_waypoint = next_edge['exit_waypoint']
-                    route_trace.append((current_waypoint, road_option))
+                if not choice: 
+                    print("Not another path available")
+                    continue
 
-                else:
-                    path = path + [edge['entry_waypoint']] + edge['path'] + [edge['exit_waypoint']]
-                    closest_index = self._find_closest_in_list(current_waypoint, path)
-                    for waypoint in path[closest_index:]:
-                        current_waypoint = waypoint
-                        route_trace.append((current_waypoint, road_option))
-                        if len(route)-i <= 2 and waypoint.transform.location.distance(destination) < 2*self._sampling_resolution:
-                            break
-                        elif len(route)-i <= 2 and current_waypoint.road_id == destination_waypoint.road_id and current_waypoint.section_id == destination_waypoint.section_id and current_waypoint.lane_id == destination_waypoint.lane_id:
-                            destination_index = self._find_closest_in_list(destination_waypoint, path)
-                            if closest_index > destination_index:
-                                break
-            
-            best_paths.append(route_trace)
+                for i in range(len(choice) - 1):    
+
+                        road_option = self._turn_decision(i, choice)
+                        edge = self._graph.edges[choice[i], choice[i+1]]
+                        path = []
+
+                        if edge['type'] != RoadOption.LANEFOLLOW and edge['type'] != RoadOption.VOID:
+                            route_trace.append((current_waypoint, road_option))
+                            exit_wp = edge['exit_waypoint']
+                            n1, n2 = self._road_id_to_edge[exit_wp.road_id][exit_wp.section_id][exit_wp.lane_id]
+                            next_edge = self._graph.edges[n1, n2]
+                            if next_edge['path']:
+                                closest_index = self._find_closest_in_list(current_waypoint, next_edge['path'])
+                                closest_index = min(len(next_edge['path'])-1, closest_index+5)
+                                current_waypoint = next_edge['path'][closest_index]
+                            else:
+                                current_waypoint = next_edge['exit_waypoint']
+                            route_trace.append((current_waypoint, road_option))
+
+                        else:
+                            path = path + [edge['entry_waypoint']] + edge['path'] + [edge['exit_waypoint']]
+                            closest_index = self._find_closest_in_list(current_waypoint, path) 
+                            for waypoint in path[closest_index:]:
+                                current_waypoint = waypoint
+                                route_trace.append((current_waypoint, road_option))
+                                if len(choice)-i <= 2 and waypoint.transform.location.distance(destination) < 2*self._sampling_resolution:
+                                    break
+
+                                elif len(choice)-i <= 2 and current_waypoint.road_id == destination_waypoint.road_id and current_waypoint.section_id == destination_waypoint.section_id and current_waypoint.lane_id == destination_waypoint.lane_id:
+                                    destination_index = self._find_closest_in_list(destination_waypoint, path)
+                                    if closest_index > destination_index:
+                                        break
+                counter+=1        
+                best_paths.append(route_trace)
     
         tmp = best_paths.copy()
         EME = EnergyModelEstimation(vehicle=self._vehicle, vehicle_coeffs=self._vehicle_coeffs,possible_routes=tmp,wmap=self._wmap,origin=origin,road_ids=self._id_map, verbose=self._verbose)
@@ -111,6 +172,7 @@ class RoutePlanner(object):
         final_factor = 1000000
         index = 0 
         for i in range(0,len(self._energy_cost)):
+            print("---------------------------------------------------------------------------------------------")
             print(f"Total number of stops is {number_of_stops}")
             print(f"The energy cost for {i + 1} possible paths is  | {self._energy_cost[i]} |")
             print(f"Total Distance Of Route | {total_distance[i]} | for path {i + 1}")
@@ -119,11 +181,23 @@ class RoutePlanner(object):
                 final_factor = (int(self._energy_cost[i]+total_travel_time[i]+total_distance[i]))
                 index = i
         
+        execution_time = time.time() - start_time
         best_route = best_paths[index]
 
+        print("---------------------------------------------------------------------------------------------")
+        print(f"|\tExecution time of PFA mechanism is {execution_time} seconds\t|") #Computation time of the algorithms 
+        print(f"|\tTotal Number of nodes in best path: {len(best_route)}\t|") #Solution length provided 
+
+        #Path Smoothness to evaluate path safety and comfort 
+        smoothness = self._calculate_angular_change(best_route)
+        print(f"|\tPath smoothness: {smoothness} \t|") #Path smoothness provided
+        print(f"Total number of stops is {number_of_stops}")
+        print(f"The energy cost for the bestpath is | {self._energy_cost[index]} |")
+        print(f"Total Distance Of Route | {total_distance[index]} |")
+        print(f"The total time of the link is | {total_travel_time[index]} |")
+            
         return best_route
     
-
     def _build_topology(self): 
         """
         This function retrieves topology from the server as a list of
@@ -164,7 +238,6 @@ class RoutePlanner(object):
                     continue
                 seg_dict['path'].append(next_wps[0])
             self._topology.append(seg_dict) 
-
 
     def _build_graph(self): 
         """
@@ -219,8 +292,7 @@ class RoutePlanner(object):
                     [exit_carla_vector.x, exit_carla_vector.y, exit_carla_vector.z]),
                 net_vector=vector(entry_wp.transform.location, exit_wp.transform.location),
                 intersection=intersection, type=RoadOption.LANEFOLLOW)
-            
-            
+                        
     def _find_loose_ends(self):
         """
         This method finds road segments that have an unconnected end, and
@@ -263,8 +335,7 @@ class RoutePlanner(object):
                         length=len(path) + 1, path=path,
                         entry_waypoint=end_wp, exit_waypoint=path[-1],
                         entry_vector=None, exit_vector=None, net_vector=None,
-                        intersection=end_wp.is_junction, type=RoadOption.LANEFOLLOW)
-                    
+                        intersection=end_wp.is_junction, type=RoadOption.LANEFOLLOW)                
 
     def _lane_change_link(self): 
         """
@@ -308,7 +379,6 @@ class RoutePlanner(object):
                 if left_found and right_found:
                     break
 
-
     def _localize(self,location): 
         """
         This function finds the road segment that a given location
@@ -322,7 +392,6 @@ class RoutePlanner(object):
             pass
         return edge
     
-
     def _distance_heuristic(self,n1,n2):
         """
         Distance heuristic calculator for path searching
@@ -345,23 +414,24 @@ class RoutePlanner(object):
 
         start, end = self._localize(origin), self._localize(destination)
         route = []
-        routeB = []
-
         #Deep copy of the original graph. 
         try:
-            route = nx.astar_path(self.copy_graph, source=start[0], target=end[0],heuristic=self._distance_heuristic, weight='length')
-            print("Best path based on A* is :", route)
-            hga = HybridGA(start=start, finish=end ,map=self._wmap,graph=self._graph, population_size=50, generations=100, mutation_rate=0.2)
-            #pso = PSO(self.copy_graph,start,end,num_particles=10,num_iterations=100)
-            #routeB = pso.pso()
+            if self._pfa == 'A*' or self._pfa == 'a*' or self._pfa == 'a8':
+                route = nx.astar_path(self.copy_graph, source=start[0], target=end[0],heuristic=self._distance_heuristic, weight='length')
+                if self._verbose:
+                    print("Best paths based on A* are ===> ", route)
+
+            elif self._pfa == 'HGA' or self._pfa == 'hga':
+                hga = HybridGA(start=start, finish=end ,map=self._wmap,graph=self._graph, population_size=50, generations=100, mutation_rate=0.2)
+                route = hga._routes
+                self._hga_graph = hga._hga_graph
+                if self._verbose:
+                    print("Best paths based on HGA are ===> ", route)
             
         except(KeyError, nx.exception.NetworkXNoPath):
-            print("Got Exception so not another path available")
-           
-        #Here the energy estimation will occur for every possible path. 
-        #print("Best path based on A* is :", route)
-        #print("Best path based on PSO is :", routeB)
-
+            print("Found exception therefore not another path is available.\nTerminated PFA process.")
+        
+        
         return route
     
     def _successive_last_intersection_edge(self,index,route): 
@@ -459,3 +529,43 @@ class RoutePlanner(object):
                 closest_index = i
 
         return closest_index
+
+    def _calculate_angular_change(self, path):
+        def angle_between_vectors(v1,v2): 
+
+            v1_v = np.array([v1.x, v1.y, v1.z])
+            v2_v = np.array([v2.x, v2.y, v2.z])
+
+            norm_v1 = np.linalg.norm(v1_v)
+            norm_v2 = np.linalg.norm(v2_v)
+
+            if norm_v1 == 0 or norm_v2 == 0:
+                # print("One of the vectors is zero. Angle is undefined.")
+                return 0.0
+            
+            v1_u = v1_v / norm_v1
+            v2_u = v2_v / norm_v2
+            angle = np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
+            return angle
+
+        total_angle = 0 
+        for i in range(1, len(path)-1):
+            prev_wp = path[i-1][0]
+            current_wp = path[i][0]
+            next_wp = path[i+1][0]
+            prev_point = prev_wp.transform.location
+            prev_point = np.array(prev_point)
+            current_point = current_wp.transform.location
+            current_point = np.array(current_point)
+            next_point = next_wp.transform.location
+            next_point = np.array(next_point)
+            vec1 = current_point - prev_point
+            vec2 = next_point - current_point
+            angle = angle_between_vectors(vec1, vec2)
+            total_angle += angle
+
+        average_angle_change = total_angle / (len(path) - 2) if len(path) > 2 else 0
+        return np.degrees(average_angle_change)
+            
+
+

@@ -11,7 +11,7 @@ import warnings
 import math
 import carla 
 import time 
-
+import random
 
 
 class RoutePhase():
@@ -108,9 +108,6 @@ class EnergyModelEstimation():
             
         if time_travel is None and dist_travel!=0:
             time_travel = (2*dist_travel)/(v_final+v_initial)
-
-        if time_travel is None:
-            print(f"{v_initial}, {v_final}, {dist_travel}")
 
         return (v_final-v_initial)/time_travel
 
@@ -498,6 +495,7 @@ class EnergyModelEstimation():
 
             not_stop_wp = True
             traffic_stop = False 
+            junction = False
             stop_flag = False 
             highway = False
             v_end_current_km = 0 
@@ -557,10 +555,14 @@ class EnergyModelEstimation():
                     else: 
                         v_max_next_km = self._speed_lms.get(next_link_wp.road_id) 
                 
-                if not v_max_current_km: 
+                if type(v_max_current_km) == carla.Landmark:
+                    v_max_current_km = v_max_current_km.value
+                elif not v_max_current_km: 
                     v_max_current_km = 30 
-
-                if not v_max_next_km:
+                
+                if type(v_max_next_km) == carla.Landmark: 
+                    v_max_next_km = v_max_next_km.value
+                elif not v_max_next_km:
                     v_max_next_km = 30
                
                 if next_waypoint.road_id in list(self._traffic_lights.keys()):
@@ -581,7 +583,13 @@ class EnergyModelEstimation():
                     not_stop_wp = True
                     traffic_stop = False    
                 
-                if stop_flag or traffic_stop: 
+                if next_waypoint.is_junction: 
+                    junction = True
+                else:
+                    junction = False
+
+
+                if stop_flag or traffic_stop or junction: 
                     v_end_current_km = 0
                     number_stops += 1 
                 else: 
@@ -606,11 +614,15 @@ class EnergyModelEstimation():
                     skip_phase1 = True
 
                 for phase_key, _ in phases.items():
+                    # print("Velocity in phase 1 ",phase_speed[0])
+                    # print("Velocity in phase 2 ",phase_speed[1])
+                    # print("Velocity in phase 3",phase_speed[2])
+                    # print("Velocity in phase 4 ",phase_speed[3])
 
                     if phase_key == "accelerate":
 
                         if skip_phase1:
-
+                            print(f"Phase 1 is skipped, as it is not necessary")
                             phase_acc[0] = 0 
                             phase_dist[0] = 0 
                             phase_time[0] = 0
@@ -622,13 +634,15 @@ class EnergyModelEstimation():
 
                         else: 
 
-                            # print(f"Phase 1 in progress. Acceleration from initial velocity {init_velocity_km} to max velocity {v_max_current_km}")
+                            print(f"Phase 1 in progress. Acceleration from initial velocity {init_velocity_km} to max velocity {v_max_current_km}")
                             
                             temp = self.time_travel.get((init_velocity_km,v_max_current_km))#\/
                             phase_acc[0] = self._average_acceleration(init_velocity_ms,v_max_current_ms,temp,dist_travel=0)#\/
                             phase_dist[0] = (v_max_current_ms**2 - init_velocity_ms**2)/(2*phase_acc[0])#\/
 
-                            if phase_dist[0] >= link_dist and not (stop_flag or traffic_stop): #\/
+                            if phase_dist[0] >= link_dist and not (stop_flag or traffic_stop or junction): #\/
+                                print(f"Phase 1 distance is bigger than the link's distance no stop")
+
                                 max_vel, best_acceleration = self.find_max_velocity(distance=link_dist)
                                 v_max_current_ms = max_vel
                                 phase_acc[0] = best_acceleration
@@ -642,7 +656,8 @@ class EnergyModelEstimation():
                                 skip_phase3 = True 
                                 skip_phase4 = True
 
-                            elif phase_dist[0] >= link_dist and (stop_flag or traffic_stop): #\/
+                            elif phase_dist[0] >= link_dist and (stop_flag or traffic_stop or junction): #\/
+                                print(f"Phase 1 distance is bigger than the link's distance with stop")
                                 max_vel, best_acceleration = self.find_max_velocity(distance=link_dist/2)
                                 v_max_current_ms = max_vel
                                 phase_acc[0] = best_acceleration
@@ -651,6 +666,7 @@ class EnergyModelEstimation():
                                 # v_max_current_km = 10
                                 # v_max_current_ms = 10 * 0.27778
                                 # phase_acc[0] = self._average_acceleration(init_velocity_ms,v_max_current_ms,None,link_dist/2)
+
                                 phase_dist[0] = (v_max_current_ms**2 - init_velocity_ms**2)/(2*phase_acc[0])
                                 skip_phase2 = True 
                                 skip_phase3 = False 
@@ -667,6 +683,7 @@ class EnergyModelEstimation():
 
                     elif phase_key == "steadyspeed" :
                         if skip_phase2:
+                            print(f"Phase 2 is skipped, as it is not necessary")
                             phase_acc[1] = 0
                             phase_dist[1] = 0
                             phase_time[1] =0
@@ -674,17 +691,20 @@ class EnergyModelEstimation():
                             phase_avg_end_speed[1] = 0
                             energy = 0 
                             phase_energy.append(energy)
-                            skip_phase2 = False 
+                            if not (stop_flag or traffic_stop or junction):
+                                print("Phase 2 is kept False")
+                                skip_phase2 = False 
+
                             
                         elif stop_flag or traffic_stop:
-
+                            print("Entered phase 1 with a stop at the end")
                             v_end_current_km = 0
                             v_end_current_ms = 0 
                             temp = self.time_travel.get((v_max_current_km,v_end_current_km)) #\/
                             phase_acc[2] = self._average_acceleration(v_max_current_ms,v_end_current_ms,temp,dist_travel=0)#\/
                             phase_dist[2] = np.abs((v_max_current_ms**2 - v_end_current_ms**2)/(2*phase_acc[2])) #\/
                             if phase_dist[2] + phase_dist[0]> link_dist:
-                                # print(f"The distance in phase 3 {phase_dist[2]} is bigger than the link's distance {link_dist}")
+                                print(f"The distance in phase 3 {phase_dist[2]} is bigger than the link's distance {link_dist}")
                                 phase_acc[1] = 0
                                 phase_dist[1] = 0
                                 phase_time[1] = 0
@@ -706,7 +726,7 @@ class EnergyModelEstimation():
 
                             phase_acc[2] = 0
                             phase_dist[2] = 0  
-                            # print("Phase 2 == > Entered the normal execution without final stop")
+                            print("Phase 2 == > Entered the normal execution without final stop")
                             phase_acc[1] = 0 # a_2(k)=0
                             phase_dist[1] = link_dist - phase_dist[0] - phase_dist[2] #d2_2 = link_lenght(k) - ds_1(k) - ds_3(k)
                             phase_time[1] = phase_dist[1]/v_max_current_ms # ds_2(k) / v_max(k)
@@ -724,6 +744,7 @@ class EnergyModelEstimation():
 
                     elif phase_key == "decelerate":
                         if skip_phase3:
+                            print(f"Phase 3 is skipped, as it is not necessary")
                             phase_acc[2] = 0
                             phase_dist[2] = 0
                             phase_time[2] = 0
@@ -733,10 +754,20 @@ class EnergyModelEstimation():
                             phase_energy.append(energy)
                             skip_phase3 = False
 
-                        elif stop_flag or traffic_stop :
+                        elif stop_flag or traffic_stop or junction :
                             v_end_current_km = 0
                             v_end_current_ms = 0
-                            # print(f"Decreasing speed as stop node was found... acceleration is {phase_acc[2]} and distance {phase_dist[2]}")
+                            if skip_phase2: 
+                                skip_phase2 = True
+                                phase_acc[2] = self._average_acceleration(v_max_current_ms,v_end_current_ms,temp,dist_travel=0)#\/
+                                phase_dist[2] = np.abs((v_max_current_ms**2 - v_end_current_ms**2)/(2*phase_acc[2])) 
+                                max_vel, best_acceleration = self.find_max_velocity(distance=link_dist-phase_dist[0])
+                                v_max_current_ms = max_vel
+                                phase_acc[2] = best_acceleration
+                                phase_dist[2] = np.abs((v_max_current_ms**2 - v_end_current_ms**2)/(2*phase_acc[2]))
+                                print(f"Decreasing speed as stop node was found... acceleration is {phase_acc[2]} and distance {phase_dist[2]}")
+
+                            print(f"Decreasing speed as stop node was found... acceleration is {phase_acc[2]} and distance {phase_dist[2]}")
                             phase_time[2] = np.abs((v_max_current_ms-v_end_current_ms)/(2*phase_acc[2]))
                             phase_speed[2] = v_end_current_km
                             phase_avg_end_speed[2] = (0.25*v_end_current_km) +  (0.75*v_max_current_km) #vavg_3(k) = 0.25*v_end(k) + 0.75*v_max(k)
@@ -747,10 +778,10 @@ class EnergyModelEstimation():
                                                              phase_avg_end_speed=phase_avg_end_speed[2],
                                                              avg_slope=avg_slope)
                             phase_energy.append(energy)
-                            # print("Phase 3 == > Entered the normal deceleration")
+                            print("Phase 3 == > Entered the normal deceleration")
                             
                         else: 
-                            # print("Phase 3 == > No deceleration needed")
+                            print("Phase 3 == > No deceleration needed")
                             phase_time[2] = 0
                             phase_speed[2] = 0
                             phase_avg_end_speed[2] = 0
@@ -764,6 +795,7 @@ class EnergyModelEstimation():
 
                     elif phase_key == "stopstill":
                         if skip_phase4: 
+                            print(f"Phase 4 is skipped, as it is not necessary")
                             phase_acc[3] = 0
                             phase_dist[3] = 0
                             phase_time[3] = 0
@@ -779,7 +811,7 @@ class EnergyModelEstimation():
                             skip_phase4 = False 
 
                         elif highway:
-                            # print("Phase 4 == > Highway")
+                            print("Phase 4 == > Highway")
                             phase_acc[3] = 0
                             phase_dist[3] = 0
                             phase_time[3] = 0
@@ -794,7 +826,7 @@ class EnergyModelEstimation():
                             phase_energy.append(energy)
 
                         elif stop_flag: 
-                            # print("Phase 2 == > Stop sign stop ")
+                            print("Phase 2 == > Stop sign stop ")
                             phase_acc[3] = 0
                             phase_dist[3] = 0 
                             phase_time[3] = self._stop_times["stop"]
@@ -808,7 +840,7 @@ class EnergyModelEstimation():
                                                              avg_slope=avg_slope)
                             phase_energy.append(energy)
                         elif traffic_stop:
-                            # print("Phase 4 == > Traffic light Stop ")
+                            print("Phase 4 == > Traffic light Stop ")
                             phase_acc[3] = 0
                             phase_dist[3] = 0
                             phase_time[3] = self._stop_times["traffic_light"]
@@ -821,8 +853,22 @@ class EnergyModelEstimation():
                                                              phase_avg_end_speed=phase_avg_end_speed[3],
                                                              avg_slope=avg_slope)
                             phase_energy.append(energy) 
+                        elif junction: 
+                            print("Phase 4 == > Junction Stop ")
+                            phase_acc[3] = 0
+                            phase_dist[3] = 0
+                            phase_time[3] = random.random() * 5
+                            phase_speed[3] = 0
+                            phase_avg_end_speed[3] = 0 
+                            energy = self._phase_calculation(phase_acc=phase_acc[3],
+                                                             phase_speed=phase_speed[3],
+                                                             phase_dist=phase_dist[3],
+                                                             phase_time=phase_time[3],
+                                                             phase_avg_end_speed=phase_avg_end_speed[3],
+                                                             avg_slope=avg_slope)
+                            phase_energy.append(energy) 
                         else:
-                            # print("Phase 4 == > No stopping")
+                            print("Phase 4 == > No stopping")
                             phase_acc[3] = 0
                             phase_dist[3] = 0
                             phase_time[3] = 0

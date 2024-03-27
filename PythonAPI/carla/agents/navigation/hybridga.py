@@ -28,6 +28,7 @@ class HybridGA():
         self._speed_lms = {}
         self._topology = None
         self._hga_graph = None
+        self._check_graph=graph
         self._parent_selection = "sss"
         self._keep_parents = 1 
         self._crossover_type = "single_point"
@@ -38,6 +39,7 @@ class HybridGA():
         self._find_loose_ends()
         self._lane_change_link()
         self._hga_graph = nx.DiGraph(self._hga_graph)
+
         self._ACO = ACO(graph=self._hga_graph, source=self._start, target=self._finish)
 
         self._paths = self.find_paths(self._hga_graph,self._start[0],self._finish[0])
@@ -94,14 +96,12 @@ class HybridGA():
         #γ) να αναγνωρίζω και να αλλάζω την ταχύτητα αν έχουν διαφορετικές μέγιστες ταχύτητες. 
         #δ) να υπολογίζω μέσα από την ταχύτητα τον χρόνο για την απόσταση. 
         #ε) ... 
-       
         speed_limits = self._map.get_all_landmarks_of_type('274')
         speed_lms = {lm.road_id: lm for lm in speed_limits}
         self._speed_lms = speed_lms
         self._hga_graph = nx.DiGraph()
         self._id_map = dict()  # Map with structure {(x,y,z): id, ... }
         self._road_id_to_edge = dict()  # Map with structure {road_id: {lane_id: edge, ... }, ... }
-
 
         for segment in self._topology: 
             enter_pos, exit_pos = segment['entryxyz'], segment['exitxyz']
@@ -110,11 +110,17 @@ class HybridGA():
             intersection = enter_wp.is_junction 
             road_id, section_id, lane_id = enter_wp.road_id, enter_wp.section_id, enter_wp.lane_id
             edge_distance = (np.sqrt((exit_pos[1]-enter_pos[1])**2 + (exit_pos[0]-enter_pos[0])**2 + (exit_pos[2]-enter_pos[2])**2))
+            
             if road_id not in speed_lms: 
                 speed_lms[road_id] = 30
+            if type(speed_lms[road_id]) == carla.Landmark:
+                speed_lms[road_id] = speed_lms[road_id].value
+            
             time_distance = edge_distance/speed_lms[road_id]
-            weight = np.random.randint(1,10)
+            #weight = np.random.randint(1,10)
+            weight = 1
             self._cost_matrix[(enter_wp,exit_wp)] = [edge_distance, time_distance, weight]
+
             for vertex in enter_pos, exit_pos:
                 # Adding unique nodes and populating id_map
                 if vertex not in self._id_map:
@@ -178,7 +184,8 @@ class HybridGA():
                     if (exit_wp,path[-1]) not in self._cost_matrix:
                         edge_distance = (np.sqrt((n2_xyz[1]-exit_pos[1])**2 + (n2_xyz[0]-exit_pos[0])**2 + (n2_xyz[2]-exit_pos[2])**2))
                         time_distance = edge_distance/self._speed_lms[exit_wp.road_id]
-                        weight = np.random.randint(1,10)
+                        #weight = np.random.randint(1,10)
+                        weight = 1
                         self._cost_matrix[(exit_wp,path[-1])] = [edge_distance, time_distance, weight]
 
                     self._hga_graph.add_edge(
@@ -213,7 +220,8 @@ class HybridGA():
                                 if (waypoint, next_waypoint) not in self._cost_matrix:
                                     edge_distance = (np.sqrt((next_waypoint.transform.location.x-waypoint.transform.location.x)**2 + (next_waypoint.transform.location.y-waypoint.transform.location.y)**2 + (next_waypoint.transform.location.z-waypoint.transform.location.z)**2))
                                     time_distance = edge_distance/self._speed_lms[waypoint.road_id]
-                                    weight = np.random.randint(1,10)
+                                    #weight = np.random.randint(1,10)
+                                    weight = 1
                                     self._cost_matrix[(waypoint, next_waypoint)] = [edge_distance, time_distance,weight]
                                     # print("Position inside the right junction")
 
@@ -235,7 +243,8 @@ class HybridGA():
                                 if (waypoint, next_waypoint) not in self._cost_matrix:
                                     edge_distance = (np.sqrt((next_waypoint.transform.location.x-waypoint.transform.location.x)**2 + (next_waypoint.transform.location.y-waypoint.transform.location.y)**2 + (next_waypoint.transform.location.z-waypoint.transform.location.z)**2))
                                     time_distance = edge_distance/self._speed_lms[waypoint.road_id]
-                                    weight = np.random.randint(1,10)
+                                    weight = 1
+                                    #weight = np.random.randint(1,10)
                                     self._cost_matrix[(waypoint, next_waypoint)] = [edge_distance, time_distance,weight]
                                     # print("Position inside the left junction")
                                 self._hga_graph.add_edge(
@@ -252,6 +261,7 @@ class HybridGA():
         This function finds the road segment that a given location
         is part of, returning the edge it belongs to
         """
+
         waypoint = self._map.get_waypoint(location)
         edge = None
         try:
@@ -261,6 +271,7 @@ class HybridGA():
         return edge
     
     def find_paths(self, G, start, end, path=[], max_depth=15):
+
         path = path + [start]
         if start == end:
             return [path]
@@ -275,17 +286,19 @@ class HybridGA():
         return paths
 
     def fitness_func(self, path):
+
+
         fitness = []
 
         #Provide max values why? because we want to use them as the scale component for each element. 
         max_time = 50 #Assume maximum time of 50 seconds 
-        max_distance = 200 #Assume maximum distance between nodes. 
+        max_distance = 100 #Assume maximum distance between nodes. 
         max_weight = 10
 
         #Weights for each component 
-        weight_time = 0.4 
-        weight_ease = 0.4 
-        weight_weight = 0.2 
+        weight_time = 0.2 
+        weight_ease = 0.7 
+        weight_weight = 0.1 
 
         #Initialize metrics 
         travel_time = 0 
@@ -305,28 +318,31 @@ class HybridGA():
 
             else: 
                 #Handle the case for where the edge does not exist for example assign a penalty 
-                travel_time += 200
-                ease_of_driving += 500
-                weights += 50
-
+                travel_time += 100
+                ease_of_driving += 1000
+                weights += 10
+        
         #Normalize values based on factors 
         normalized_time = travel_time/max_time
         normalized_ease = ease_of_driving/max_distance
         normalized_weights = weights/max_weight
-
-        fit = -(weight_time*normalized_time) + (weight_ease*normalized_ease) + (weight_weight*normalized_weights)
+        # fit = -((weight_ease*normalized_ease) + (weight_weight*normalized_weights))
+        fit = -((weight_time*normalized_time) + (weight_ease*normalized_ease) + (weight_weight*normalized_weights))
         fitness.append(fit)
             
         return fitness
     
     def initialize_population(self, num_individuals,nodes, min_length, max_length):
+        print("Initializing population...")
         #TODO: Change the paramteres needed. 
         population = [] 
         population = self._ACO._ant_colony_optimization()
         print(f"Initialized population with ACO and length {len(population)}")
+        self._population_size=len(population)
         return population  
 
     def selection(self, fitness_values):
+
         #Selection step
         selected_indices = [] 
         self._tournament_size = self._population_size//2
@@ -340,6 +356,7 @@ class HybridGA():
         return selected_indices
 
     def crossover(self,p1, p2):
+
         #Combines parts of two selected paths to create offsprings
 
         # Find common nodes between p1 and p2 that are also connected in the graph        
@@ -372,6 +389,7 @@ class HybridGA():
         return valid_child
     
     def mutate(self, individual):
+
         #Randomly alters a path to introduce variability and explore unseen areas of the search space. 
         if np.random.rand() < self._mutation_rate:
             if len(individual) <= 2: 

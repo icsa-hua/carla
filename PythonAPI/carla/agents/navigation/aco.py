@@ -7,7 +7,7 @@ class ACO():
     def __init__(self,*,
                  graph=None,
                  source=None, target=None,
-                 num_ants=10,iterations=10,
+                 num_ants=10,iterations=20,
                  initial_pheromone=0.1, alpha=1.0,
                  beta=1.0, gamma=1.0, evaporation_rate = 0.5,
                  pheromone_deposit=100.0):
@@ -34,6 +34,7 @@ class ACO():
             if self._graph.has_edge(source_node,target_node):
                 edge_attributes = self._graph.get_edge_data(source_node,target_node)
                 path_cost += edge_attributes['time'] + edge_attributes['ease_of_driving'] + edge_attributes['weight']
+                # path_cost += edge_attributes['ease_of_driving'] + edge_attributes['weight']
             else: 
                 #Handle the case for where the edge does not exist for example assign a penalty 
                 path_cost += 750
@@ -55,7 +56,7 @@ class ACO():
                     pheromone = self._pheromone_matrix[(edge[1],edge[0])]
                 else: 
                     pheromone = self._pheromone_matrix[(edge[0], edge[1])]
-                
+                # visibility =  (self._alpha /edge[2]['weight']) +  (self._gamma / edge[2]['ease_of_driving'])
                 visibility = (self._alpha /edge[2]['weight']) + (self._beta / edge[2]['time']) + (self._gamma / edge[2]['ease_of_driving'])
                 self._probabilities.append((pheromone ** self._alpha)*(visibility ** self._beta))
         

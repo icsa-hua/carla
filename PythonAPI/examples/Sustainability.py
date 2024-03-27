@@ -60,7 +60,7 @@ class WaypointSelector:
         self.start_waypoint = None
         self.end_waypoint = None
         self.mode = None
-        background_image = background_image.replace("\\","/")
+        # background_image = background_image.replace("\\","/")
         max_x = max(waypoint.location.x for waypoint in self.map)
         max_y = max(waypoint.location.y for waypoint in self.map)
         self.window_width = max_x + 250
@@ -69,20 +69,17 @@ class WaypointSelector:
         self.canvas = tk.Canvas(master, width=self.window_width, height=self.window_height)
         self.canvas.pack()
 
-        self._bg_image = Image.open(background_image)
+        # self._bg_image = Image.open(background_image)
         # self._bg_photo = ImageTk.PhotoImage(self._bg_image)
 
         # self.canvas.create_image(0, 0, anchor="nw", image=self._bg_photo)
         self.draw_map()
         
         self.canvas.bind("<Button-1>", self.on_click)
-        
         self.start_button = tk.Button(master, text="Select Start Waypoint", command=self.select_start)
         self.start_button.pack()
-        
         self.end_button = tk.Button(master, text="Select End Waypoint", command=self.select_end)
         self.end_button.pack()
-        
         self.done_button = tk.Button(master, text="Done", command=self.done)
         self.done_button.pack()
         
@@ -120,6 +117,7 @@ class WaypointSelector:
         if self.start_waypoint is None or self.end_waypoint is None:
             print("Please select both start and end waypoints.")
         else:
+            self.master.quit()
             self.master.destroy()
 
     def get_closest_waypoint(self, x, y):
@@ -163,6 +161,11 @@ def main():
                 default = False, 
                 help='Select if you want to alernate the environment settings'
         )
+        argparser.add_argument(
+                '--pfa', 
+                default = 'A*', 
+                help='Select if you want to alernate the environment settings'
+        )
 
         if len(sys.argv) < 1:
                 argparser.print_help()
@@ -203,18 +206,17 @@ def main():
         save_town = os.path.join(directory, "Town.png")
         plt.savefig(save_town)
 
-
-        # root = tk.Tk()
-        # app = WaypointSelector(root,sim_map,save_town)
-        # root.mainloop()
-        # start_point=app.start_waypoint
-        # end_point = app.end_waypoint
-        # start_point = carla.Location(start_point.location)
-        # end_point = carla.Location(end_point.location)
+        root = tk.Tk()
+        app = WaypointSelector(root,sim_map,save_town)
+        root.mainloop()
+        start_point=app.start_waypoint
+        end_point = app.end_waypoint
+        start_point = carla.Location(start_point.location)
+        end_point = carla.Location(end_point.location)
         
-        spawn_points = sim_map.get_spawn_points()
-        start_point = carla.Location(spawn_points[50].location)
-        end_point = carla.Location(spawn_points[100].location)
+        # spawn_points = sim_map.get_spawn_points()
+        # start_point = carla.Location(spawn_points[80].location)
+        # end_point = carla.Location(spawn_points[100].location)
 
         print(f"Processing JSON file for path {args.json} ")
         vehicle_parser = VehicleDesign() 
@@ -275,7 +277,7 @@ def main():
             
         vehicle_coeffs._acc_time = acc_time
         oct_dictionary = {'ignore_traffic_lights':False,'ignore_stop_signs': False,'ignore_vehicles': False}
-        agent = Agent(vehicle=ego_vehicle, vehicle_coeffs=vehicle_coeffs,target_speed=30,opt_dict=oct_dictionary,verbose=args.verbose)
+        agent = Agent(vehicle=ego_vehicle, vehicle_coeffs=vehicle_coeffs,target_speed=30,opt_dict=oct_dictionary,verbose=args.verbose,pfa_inst=args.pfa)
         agent.follow_speed_limits(True)
         agent.set_destination(end_point, start_point)
 
@@ -326,61 +328,3 @@ if __name__ == '__main__':
         print('\nCancelled by user. Bye!')
     except RuntimeError as e:
         print(e)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

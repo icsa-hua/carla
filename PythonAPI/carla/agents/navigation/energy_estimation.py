@@ -233,7 +233,7 @@ class EnergyModelEstimation():
                 x1, y1 = flinks[link][0].transform.location.x, flinks[link][0].transform.location.y    
                 x2, y2 = flinks[link][1].transform.location.x, flinks[link][1].transform.location.y 
                 plt.plot([-x1,-x2], [y1,y2], marker = 'o')
-            plt.title("Map formed inside the loop_route function")
+            plt.title("Map formed after filtering the nodes based on ")
             plt.show()
             
         self._links = [(x,y) for x,y in self._links if y is not None and x is not None]
@@ -248,16 +248,47 @@ class EnergyModelEstimation():
             return False
         return True
 
+    def ensure_min_link_length(self, waypoints, min_link_length=3):
+        if not waypoints:
+            return []
+
+        # Start with the first waypoint
+        filtered_waypoints = [waypoints[0][0]]
+        last_included_waypoint = waypoints[0][0]
+
+        for waypoint in range(len(waypoints)-1):
+            if waypoint ==0:
+                continue
+            if self.calculate_distance(last_included_waypoint.transform.location, waypoints[waypoint][0].transform.location) >= min_link_length:
+                filtered_waypoints.append(waypoints[waypoint][0])
+                last_included_waypoint = waypoints[waypoint][0]
+
+        # Ensure the last waypoint is always included
+        if filtered_waypoints[-1] != waypoints[-1][0]:
+            filtered_waypoints.append(waypoints[-1][0])
+        return filtered_waypoints
+
     def link_creation(self):
 
         waypoints = self._waypoint_queue
         wp_road_ids = dict()
-    
-        for wp,_ in waypoints: 
+        waypoints = self.ensure_min_link_length(waypoints)
+
+        for wp in waypoints: 
             road_id = wp.road_id
             if road_id not in wp_road_ids:
                 wp_road_ids[road_id]=[]
             wp_road_ids[road_id].append(wp)
+
+
+        # if self._verbose == True:
+        #     for link in range(len(waypoints)-1): 
+        #         x1, y1 = waypoints[link].transform.location.x, waypoints[link].transform.location.y    
+        #         x2, y2 = waypoints[link+1].transform.location.x, waypoints[link+1].transform.location.y 
+        #         # x3, y3 = link[2].transform.location.x, link[2].transform.location.y 
+        #         plt.plot([-x1,-x2], [y1,y2], marker = 'o')
+        #     plt.title("Nodes selection to ensure minimum link length")
+        #     plt.show()
 
         formatted_wp_roads = {}
         for key in wp_road_ids.keys():
@@ -276,14 +307,14 @@ class EnergyModelEstimation():
                 wayp2 = formatted_wp_roads[key][ii+1]
                 self._links.append((wayp1,wayp2))
 
-        # if self._verbose == True:
-        #     for link in self._links: 
-        #         x1, y1 = link[0].transform.location.x, link[0].transform.location.y    
-        #         x2, y2 = link[1].transform.location.x, link[1].transform.location.y 
-        #         # x3, y3 = link[2].transform.location.x, link[2].transform.location.y 
-        #         plt.plot([-x1,-x2], [y1,y2], marker = 'o')
-        #     plt.title("This is the one straingth after the appendind")
-        #     plt.show()
+        if self._verbose == True:
+            for link in self._links: 
+                x1, y1 = link[0].transform.location.x, link[0].transform.location.y    
+                x2, y2 = link[1].transform.location.x, link[1].transform.location.y 
+                # x3, y3 = link[2].transform.location.x, link[2].transform.location.y 
+                plt.plot([-x1,-x2], [y1,y2], marker = 'o')
+            plt.title("First filter and DP model are applied to path")
+            plt.show()
 
 
         #Find and create a path with all the points
@@ -303,13 +334,13 @@ class EnergyModelEstimation():
             p3 = self._links[link+1][0] # the first point of the next link 
             links.append((p2,p3))
 
-        if self._verbose==True:
-            for link in links: 
-                x1, y1 = link[0].transform.location.x, link[0].transform.location.y    
-                x2, y2 = link[1].transform.location.x, link[1].transform.location.y 
-                plt.plot([-x1,-x2], [y1,y2], marker = 'o')
-            plt.title("Graph topology after separation and link creation.")
-            plt.show()
+        # if self._verbose==True:
+        #     for link in links: 
+        #         x1, y1 = link[0].transform.location.x, link[0].transform.location.y    
+        #         x2, y2 = link[1].transform.location.x, link[1].transform.location.y 
+        #         plt.plot([-x1,-x2], [y1,y2], marker = 'o')
+        #     plt.title("Graph topology after separation and link creation.")
+        #     plt.show()
 
         #print the elements in the route in a diagram for clarity. 
         filtered_links = [link for link in links if self.condition(link)]
@@ -394,8 +425,11 @@ class EnergyModelEstimation():
                 key_points.append(points[i])
         key_points.append(points[-1])
         return key_points 
-
-    def _douglas_pucker(self,points, epsilon_curved, epsilon_straight): 
+    
+    def calculate_distance(self, p1, p2):
+        return np.linalg.norm(np.array([p2.x - p1.x, p2.y - p1.y, p2.z - p1.z]))
+    
+    def _douglas_pucker(self,points, epsilon_curved, epsilon_straight, distance_thr=3): 
 
         segment_classification = self.key_points_of_curvature(points ,np.pi/95)
        
@@ -403,6 +437,11 @@ class EnergyModelEstimation():
             start_point = points[0].transform.location.x, points[0].transform.location.y, points[0].transform.location.z
             end_point = points[-1].transform.location.x, points[-1].transform.location.y, points[-1].transform.location.z
         
+            if self.calculate_distance(points[0].transform.location,points[-1].transform.location):
+                # print("The segment is too short to simplify.",self.calculate_distance(points[0].transform.location,points[-1].transform.location))
+                # time.sleep(60)
+                return [points[0], points[-1]]
+            
             dmax = 0.0 
             index = 0
             for ii in range(1,len(points)-1):
@@ -440,6 +479,7 @@ class EnergyModelEstimation():
             
             #Calculate the distance neede to reach v_final from v_initial 
             distance_needed = v_initial_ms * time + 0.5 * acceleration * (time ** 2)
+            print(distance_needed, distance)
             if distance_needed <= distance and v_final_ms>max_velocity: 
                 max_velocity = v_final_ms 
                 best_acceleration = acceleration
@@ -470,13 +510,13 @@ class EnergyModelEstimation():
 
             route = self._possible_routes[0]
 
-            if self._verbose==True:
-                for link in range(len(route)-1): 
-                    x1, y1 = route[link][0].transform.location.x, route[link][0].transform.location.y    
-                    x2, y2 = route[link+1][0].transform.location.x, route[link+1][0].transform.location.y 
-                    plt.plot([-x1,-x2], [y1,y2], marker = 'o')
-                plt.title("Original graph topology generated by the pfa selection")
-                plt.show()
+            # if self._verbose==True:
+            #     for link in range(len(route)-1): 
+            #         x1, y1 = route[link][0].transform.location.x, route[link][0].transform.location.y    
+            #         x2, y2 = route[link+1][0].transform.location.x, route[link+1][0].transform.location.y 
+            #         plt.plot([-x1,-x2], [y1,y2], marker = 'o')
+            #     plt.title("Original graph topology generated by the pfa selection")
+            #     plt.show()
 
             self._remake_queue(route)
             self._min_acc = self._average_acceleration(0,30,self.time_travel[(0,30)],dist_travel=0)
@@ -584,7 +624,7 @@ class EnergyModelEstimation():
                     traffic_stop = False    
                 
                 if next_waypoint.is_junction: 
-                    junction = True
+                    junction = False
                 else:
                     junction = False
 
@@ -692,7 +732,7 @@ class EnergyModelEstimation():
                             energy = 0 
                             phase_energy.append(energy)
                             if not (stop_flag or traffic_stop or junction):
-                                print("Phase 2 is kept False")
+                                print("Phase 2 is kept true")
                                 skip_phase2 = False 
 
                             
@@ -755,12 +795,15 @@ class EnergyModelEstimation():
                             skip_phase3 = False
 
                         elif stop_flag or traffic_stop or junction :
+                            print(f"Decreasing speed as stop node was found.")
                             v_end_current_km = 0
                             v_end_current_ms = 0
                             if skip_phase2: 
+                                print(f"Decreasing speed as stop node was found... acceleration is {phase_acc[2]} and distance {phase_dist[2]}")
+
                                 skip_phase2 = True
-                                phase_acc[2] = self._average_acceleration(v_max_current_ms,v_end_current_ms,temp,dist_travel=0)#\/
-                                phase_dist[2] = np.abs((v_max_current_ms**2 - v_end_current_ms**2)/(2*phase_acc[2])) 
+                                # phase_acc[2] = self._average_acceleration(v_max_current_ms,v_end_current_ms,temp,dist_travel=0)#\/
+                                # phase_dist[2] = np.abs((v_max_current_ms**2 - v_end_current_ms**2)/(2*phase_acc[2])) 
                                 max_vel, best_acceleration = self.find_max_velocity(distance=link_dist-phase_dist[0])
                                 v_max_current_ms = max_vel
                                 phase_acc[2] = best_acceleration

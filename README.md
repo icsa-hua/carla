@@ -1,3 +1,63 @@
+Performance Analysis of Energy-Efficient Path Planning for
+Sustainable Transportation 
+==========================================================
+
+### Introduction 
+
+This is a published work that creates an energy estimation framework 
+for BEVs, leveraging the CARLA Simulator capabilities. It combines 
+offline path cost estimation with realistic energy consumption 
+calculations to determine the best path for the vehicle to follow. 
+
+Our work utilizes a custom Hybrid Genetic Algorithm with a custom 
+Ant Colony Optimization to initialize the population for the HGA, 
+as well as a precompiled A* to offer validation and comparison. 
+
+We also use the Douglas-Peucker methodology to tailor the path to 
+the energy estimator requirements and minimize the fault percentage. 
+
+Our complete published work can be accesed here: 
+https://www.mdpi.com/2071-1050/16/12/4963
+
+### How-To-Use 
+Ensure you follow the CARLA documentation to install the simulator. 
+
+You can clone the current repository 
+```sh
+git clone -b icsa-developer https://github.com/icsa-hua/carla.git
+```
+Then once installed you can simply execute the run.py file: 
+```sh
+cd my_project/carla/PythonAPI/carla/agents/navigation/dummy_application/
+```
+Execute the file with: 
+```sh
+python run.py 
+```
+This will execute the main application in its default form. 
+
+You can add extra arguments,to opt from
+
+* The JSON initialization of the vehicle's characteristics
+```sh
+python run.py --json='path/to/json/file' 
+```
+Leaving this option empty results in the program creating a json file 
+so that you can use it later. You can change the default values in the app.py. 
+
+* Change Path finding option
+```sh
+python run.py --pfa=HGA or A* 
+```
+
+* Select if you need a GUI interface to set the origin and destination for the path
+```sh
+python run.py --gui 
+```
+This feature is still in progress so sometimes it is better to manually input the locations you desire. 
+You can view the appropriate waypoints with the view_all_waypoints.py example in carla/PythonAPI/examples . 
+
+
 CARLA Simulator
 ===============
 

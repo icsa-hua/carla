@@ -57,6 +57,11 @@ python run.py --gui
 This feature is still in progress so sometimes it is better to manually input the locations you desire. 
 You can view the appropriate waypoints with the view_all_waypoints.py example in carla/PythonAPI/examples . 
 
+### CARLA IS INSTALLED 
+If CARLA is already installed in your system then you can just download the dummy_application folder 
+located in /carla/PythonAPI/carla/agents/navigation 
+No additional packages are needed, except the json package which sometimes is not included. 
+You can simply execute the program with the previous commands. 
 
 CARLA Simulator
 ===============

@@ -16,7 +16,7 @@ as well as a precompiled A* to offer validation and comparison.
 We also use the Douglas-Peucker methodology to tailor the path to 
 the energy estimator requirements and minimize the fault percentage. 
 
-Our complete published work can be accesed here: 
+Our complete published work can be accessed here: 
 https://www.mdpi.com/2071-1050/16/12/4963
 
 ### How-To-Use 

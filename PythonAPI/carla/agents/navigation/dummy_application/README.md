@@ -36,7 +36,7 @@ python run.py
 ```
 This will execute the main application in its default form. 
 
-You can add extra arguments,to opt from
+You can add extra arguments to opt from:
 
 * The JSON initialization of the vehicle's characteristics
 ```sh
@@ -58,8 +58,9 @@ This feature is still in progress so sometimes it is better to manually input th
 You can view the appropriate waypoints with the view_all_waypoints.py example in carla/PythonAPI/examples . 
 
 ### CARLA IS INSTALLED 
-If CARLA is already installed in your system then you can just download the dummy_application folder 
-located in /carla/PythonAPI/carla/agents/navigation 
+If CARLA is already installed in your system then you can just download the navigation folder 
+located in /carla/PythonAPI/carla/agents. This includes the application and the route planner, the basic 
+agent and the json files that you can use. 
 No additional packages are needed, except the json package which sometimes is not included. 
 You can simply execute the program with the previous commands. 
 
